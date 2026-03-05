@@ -1,47 +1,113 @@
 from utils.source_detector import detect_source
-from processors.youtube_processor import get_video_id, get_transcript
-from processors.web_processor import extract_article
-from processors.github_processor import clone_repo, read_readme
+from utils.cleaner import clean_processor_output
+from llm.prompt_builder import build_summary_prompt
 from llm.summarizer import summarize
+
+from processors.youtube_processor import process_youtube
+from processors.github_processor import process_github
+from processors.web_processor import process_web
+from processors.instagram_processor import process_instagram
+
+from database.db import save_resource, init_db
 
 
 def process_link(url):
 
     source = detect_source(url)
 
-    if source == "youtube":
+    raw_data = None
+    cleaned_data = None
+    llm_output = None
 
-        vid = get_video_id(url)
+    try:
 
-        transcript = get_transcript(vid)
+        # -------------------------
+        # PROCESS SOURCE
+        # -------------------------
 
-        summary = summarize(transcript)
+        if source.startswith("youtube"):
+            raw_data = process_youtube(url)
 
-        print(summary)
+        elif source.startswith("instagram"):
+            raw_data = process_instagram(url)
+
+        elif source.startswith("github"):
+            raw_data = process_github(url)
+
+        elif source == "web":
+            raw_data = process_web(url)
+
+        else:
+            print("Unsupported source")
+            return
 
 
-    elif source == "github":
+        # -------------------------
+        # CLEAN DATA
+        # -------------------------
 
-        repo = clone_repo(url)
-
-        text = read_readme(repo)
-
-        summary = summarize(text)
-
-        print(summary)
+        cleaned_data = clean_processor_output(raw_data)
 
 
-    elif source == "web":
+        # -------------------------
+        # BUILD PROMPT
+        # -------------------------
 
-        text = extract_article(url)
+        prompt = build_summary_prompt(cleaned_data)
 
-        summary = summarize(text)
 
-        print(summary)
+        # -------------------------
+        # SUMMARIZE
+        # -------------------------
 
+        llm_output = summarize(prompt)
+
+
+        print("\n=== AI SUMMARY ===\n")
+        print(llm_output)
+
+
+        # -------------------------
+        # SAVE TO DATABASE
+        # -------------------------
+
+        save_resource(
+            source=source,
+            url=url,
+            title=raw_data.get("title"),
+            raw_input={"url": url},
+            raw_data=raw_data,
+            cleaned_data=cleaned_data,
+            llm_output=llm_output
+        )
+
+
+    except Exception as e:
+
+        save_resource(
+            source=source,
+            url=url,
+            raw_input={"url": url},
+            status="error",
+            error=str(e)
+        )
+
+        print("Error:", e)
+
+
+# -------------------------
+# CLI ENTRY
+# -------------------------
 
 if __name__ == "__main__":
 
-    url = input("Enter resource link: ")
+    init_db()
 
-    process_link(url)
+    while True:
+
+        url = input("\nEnter resource link (or 'exit'): ")
+
+        if url.lower() == "exit":
+            break
+
+        process_link(url)
