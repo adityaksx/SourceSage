@@ -2,6 +2,10 @@ import yt_dlp
 from youtube_transcript_api import YouTubeTranscriptApi
 
 
+# -------------------------
+# Extract video ID
+# -------------------------
+
 def get_video_id(url):
 
     if "youtu.be" in url:
@@ -10,30 +14,104 @@ def get_video_id(url):
     if "watch?v=" in url:
         return url.split("watch?v=")[1].split("&")[0]
 
+    if "shorts/" in url:
+        return url.split("shorts/")[1].split("?")[0]
 
-def download_video(url, path):
+    return None
+
+
+# -------------------------
+# Get video metadata
+# -------------------------
+
+def get_video_metadata(url):
 
     ydl_opts = {
-        "format": "best[height<=1080]",
-        "outtmpl": f"{path}/%(title)s.%(ext)s",
+        "quiet": True,
+        "skip_download": True,
+        "extract_flat": False
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        ydl.download([url])
+
+        info = ydl.extract_info(url, download=False)
+
+        data = {
+            "title": info.get("title"),
+            "description": info.get("description"),
+            "channel": info.get("uploader"),
+            "views": info.get("view_count"),
+            "upload_date": info.get("upload_date")
+        }
+
+        return data
 
 
-def get_transcript(video_id):
+# -------------------------
+# Get transcript
+# -------------------------
 
-    api = YouTubeTranscriptApi()
+def get_transcript(url):
 
-    transcript_list = api.list(video_id)
+    video_id = get_video_id(url)
 
-    transcript = transcript_list.find_transcript(
-        ["en", "hi", "en-US", "en-GB"]
-    )
+    if not video_id:
+        return None
 
-    fetched = transcript.fetch()
+    try:
 
-    text = " ".join([item.text for item in fetched])
+        transcript = YouTubeTranscriptApi.get_transcript(
+            video_id,
+            languages=["en", "hi"]
+        )
 
-    return text
+        text = " ".join([t["text"] for t in transcript])
+
+        return text
+
+    except:
+        return None
+
+
+# -------------------------
+# Get comments
+# -------------------------
+
+def get_comments(url, limit=100):
+
+    ydl_opts = {
+        "skip_download": True,
+        "getcomments": True,
+        "quiet": True
+    }
+
+    comments = []
+
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+
+        info = ydl.extract_info(url, download=False)
+
+        for c in info.get("comments", [])[:limit]:
+
+            comments.append(c.get("text"))
+
+    return comments
+
+
+# -------------------------
+# Main processor
+# -------------------------
+
+def process_youtube(url):
+
+    metadata = get_video_metadata(url)
+
+    transcript = get_transcript(url)
+
+    comments = get_comments(url)
+
+    return {
+        "metadata": metadata,
+        "transcript": transcript,
+        "comments": comments
+    }
