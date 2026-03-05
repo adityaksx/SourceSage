@@ -4,14 +4,24 @@ import requests
 def summarize(text):
 
     prompt = f"""
-Summarize this developer resource.
+You are analyzing a developer learning resource.
 
-Return:
-Title
-Summary
-Tags
-Difficulty
-Learning value
+Extract and return the following fields:
+
+TITLE:
+One clear title describing the content.
+
+SUMMARY:
+Explain the resource in 3–5 sentences.
+
+KEY TOPICS:
+List important technologies or concepts mentioned.
+
+DIFFICULTY:
+Beginner / Intermediate / Advanced
+
+RESOURCE TYPE:
+Tutorial / Course / Tool / GitHub Project / Article / Video
 
 Content:
 {text}
