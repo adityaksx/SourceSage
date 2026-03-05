@@ -63,8 +63,7 @@ def process_link(url):
         llm_output = summarize(prompt)
 
 
-        print("\n=== AI SUMMARY ===\n")
-        print(llm_output)
+        return llm_output
 
 
         # -------------------------
@@ -92,7 +91,7 @@ def process_link(url):
             error=str(e)
         )
 
-        print("Error:", e)
+        return f"Error: {str(e)}"
 
 
 # -------------------------
@@ -110,4 +109,5 @@ if __name__ == "__main__":
         if url.lower() == "exit":
             break
 
-        process_link(url)
+        result = process_link(url)
+        print(result)
