@@ -82,14 +82,6 @@ TEXT_EXTS     = {".txt", ".md", ".rst", ".log"}
 # ─────────────────────────────────────────────────────────────────────────────
 
 def detect_source(input_str: str) -> str:
-    """
-    Detect source type of any input string.
-
-    Priority:
-      1. Local file path  (exists on disk OR has path separators)
-      2. URL              (starts with http:// or https://)
-      3. Raw text         (code snippet, JSON, markdown, plain text)
-    """
     if not input_str or not isinstance(input_str, str):
         return "unknown"
 
@@ -100,12 +92,19 @@ def detect_source(input_str: str) -> str:
     if local_type:
         return local_type
 
+    # ── ADD THIS BLOCK ───────────────────────────────────────────────────
+    # 1b. Bare URL (typed without https://) — normalise and detect
+    if _looks_like_bare_url(s):
+        return _detect_url("https://" + s)
+    # ────────────────────────────────────────────────────────────────────
+
     # 2. URL
     if re.match(r"^https?://", s, re.IGNORECASE):
         return _detect_url(s)
 
     # 3. Raw text
     return _detect_raw_text(s)
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -127,6 +126,27 @@ def _looks_like_path(s: str) -> bool:
     if s.startswith("~") or s.startswith("/"):
         return True
     return False
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ADD THIS NEW HELPER (paste after _looks_like_path)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Known domains — bare URLs typed without https:// get normalised and re-routed
+_KNOWN_DOMAINS_RE = re.compile(
+    r"^(www\.)?"
+    r"(github|gist\.github|youtube|youtu\.be|instagram|linkedin|twitter|x|"
+    r"reddit|medium|substack|arxiv|huggingface|notion|pastebin|loom|vimeo|"
+    r"tiktok|dailymotion|vercel|netlify|phet\.colorado)\.[a-z]{2,}(/|$)",
+    re.IGNORECASE
+)
+
+def _looks_like_bare_url(s: str) -> bool:
+    """
+    True for URLs typed without https:// prefix.
+    e.g. github.com/palinkiewicz, youtube.com/watch?v=abc
+    Prevents these from falling through to _detect_raw_text().
+    """
+    return bool(_KNOWN_DOMAINS_RE.match(s))
 
 
 def _detect_local_file(path: str) -> str | None:
