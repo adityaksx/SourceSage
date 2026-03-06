@@ -4,8 +4,12 @@ web/app.py
 FastAPI application for the AI Resource Agent.
 
 Handles:
-  - GET  /       → serve chat UI
-  - POST /chat   → process message (text + URLs) and uploaded images
+  - GET  /                     → serve chat UI
+  - GET  /resources            → serve Media Vault UI
+  - POST /chat                 → process message (text + URLs) and uploaded images
+  - GET  /api/resources        → list all saved resources (JSON)
+  - GET  /api/resources/{id}   → get single resource detail (JSON)
+  - DELETE /api/resources/{id} → delete a resource
 """
 
 import os
@@ -14,25 +18,19 @@ import shutil
 from pathlib import Path
 from typing import Optional, List
 
-from fastapi import FastAPI, Form, File, UploadFile
+from fastapi import FastAPI, Form, File, UploadFile, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
-# ── Resolve project root ─────────────────────
 BASE_DIR   = Path(__file__).parent
 ROOT_DIR   = BASE_DIR.parent
 IMAGES_DIR = ROOT_DIR / "storage" / "images"
 
 sys.path.insert(0, str(ROOT_DIR))
 
-# ── Project imports ──────────────────────────
 from main        import process_link, process_text_input, process_image_input
-from database.db import init_db
+from database.db import init_db, get_resources, get_resource, delete_resource
 
-
-# ─────────────────────────────────────────────
-# APP SETUP
-# ─────────────────────────────────────────────
 
 app = FastAPI(title="AI Resource Agent")
 
@@ -42,20 +40,92 @@ app.mount(
     name="static",
 )
 
+
 @app.on_event("startup")
 async def startup():
     init_db()
+    IMAGES_DIR.mkdir(parents=True, exist_ok=True)
+    app.mount(
+        "/storage/images",
+        StaticFiles(directory=str(IMAGES_DIR)),
+        name="images",
+    )
 
 
-# ─────────────────────────────────────────────
-# ROUTES
-# ─────────────────────────────────────────────
+# ── HTML routes ───────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
 def home():
-    template = BASE_DIR / "templates" / "chat.html"
-    return template.read_text(encoding="utf-8")
+    return (BASE_DIR / "templates" / "chat.html").read_text(encoding="utf-8")
 
+
+@app.get("/resources", response_class=HTMLResponse)
+def resources_page():
+    return (BASE_DIR / "templates" / "resources.html").read_text(encoding="utf-8")
+
+
+# ── API: list all resources ───────────────────────────────
+
+@app.get("/api/resources")
+def api_list_resources(limit: int = 500):
+    rows = get_resources(limit=limit)
+    items = []
+    for row in rows:
+        # columns: 0=id, 1=source, 2=url, 3=title,
+        #          4=raw_input, 5=raw_data, 6=cleaned_data, 7=llm_output,
+        #          8=files, 9=status, 10=error, 11=created_at,
+        #          12=vault_title, 13=vault_snippet
+        items.append({
+            "id":            row[0],
+            "source":        row[1],
+            "url":           row[2],
+            "title":         row[3],
+            "llm_output":    row[7],
+            "status":        row[9],
+            "created_at":    row[11],
+            "vault_title":   row[12],
+            "vault_snippet": row[13],
+        })
+    return {"resources": items}
+
+
+# ── API: single resource detail ───────────────────────────
+
+@app.get("/api/resources/{resource_id}")
+def api_get_resource(resource_id: int):
+    row = get_resource(resource_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Resource not found")
+    return {
+        "id":            row[0],
+        "source":        row[1],
+        "url":           row[2],
+        "title":         row[3],
+        "raw_input":     row[4],
+        "raw_data":      row[5],
+        "cleaned_data":  row[6],
+        "llm_output":    row[7],
+        "files":         row[8],
+        "status":        row[9],
+        "error":         row[10],
+        "created_at":    row[11],
+        "vault_title":   row[12],
+        "vault_snippet": row[13],
+    }
+
+
+# ── API: delete resource ──────────────────────────────────
+
+@app.delete("/api/resources/{resource_id}")
+def api_delete_resource(resource_id: int):
+    row = get_resource(resource_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Resource not found")
+    delete_resource(resource_id)
+    return {"ok": True, "deleted_id": resource_id}
+
+
+# ── Chat ──────────────────────────────────────────────────
 
 @app.post("/chat")
 async def chat(
@@ -64,22 +134,17 @@ async def chat(
 ):
     results = []
 
-    # ── 1. Process message text ───────────────
     if message and message.strip():
-        lines     = [l.strip() for l in message.strip().splitlines() if l.strip()]
-        # ✅ NEW — also catches bare URLs like github.com/user
+        lines = [l.strip() for l in message.strip().splitlines() if l.strip()]
         from utils.source_detector import _looks_like_bare_url
 
-        urls  = [
-            l for l in lines
-            if l.startswith("http://") or l.startswith("https://") or _looks_like_bare_url(l)
-        ]
-        plain = [l for l in lines if l not in urls]
+        urls      = [l for l in lines if l.startswith("http://") or l.startswith("https://") or _looks_like_bare_url(l)]
+        plain     = [l for l in lines if l not in urls]
         plain_str = "\n".join(plain).strip()
 
         for url in urls:
             try:
-                result = await process_link(url)             # ← await added
+                result = await process_link(url)
                 if result:
                     results.append(result)
             except Exception as e:
@@ -87,36 +152,28 @@ async def chat(
 
         if plain_str:
             try:
-                result = await process_text_input(plain_str) # ← await added
+                result = await process_text_input(plain_str)
                 if result:
                     results.append(result)
             except Exception as e:
                 results.append(f"Error processing text: {e}")
 
-    # ── 2. Process uploaded images ────────────
     if images:
         IMAGES_DIR.mkdir(parents=True, exist_ok=True)
-
         for img in images:
             if not img or not img.filename:
                 continue
             try:
                 safe_name = img.filename.strip().replace(" ", "_")
                 save_path = IMAGES_DIR / safe_name
-
                 with open(save_path, "wb") as f:
                     shutil.copyfileobj(img.file, f)
-
-                result = await process_image_input(          # ← await added
-                    str(save_path.resolve())
-                )
+                result = await process_image_input(str(save_path.resolve()))
                 if result:
                     results.append(result)
-
             except Exception as e:
                 results.append(f"Error processing image '{img.filename}': {e}")
 
-    # ── 3. Nothing provided ───────────────────
     if not results:
         return {"response": "Nothing to process. Please provide a link, text, or image."}
 
