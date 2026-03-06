@@ -39,6 +39,7 @@ def init_db():
 
     _add_column_if_missing(cursor, "resources", "vault_title",   "TEXT")
     _add_column_if_missing(cursor, "resources", "vault_snippet", "TEXT")
+    _add_column_if_missing(cursor, "resources", "session_id", "INTEGER")
 
     conn.commit()
     conn.close()
@@ -57,6 +58,7 @@ def save_resource(
     error=None,
     vault_title=None,
     vault_snippet=None,
+    session_id=None,
 ):
     conn = get_connection()
     cursor = conn.cursor()
@@ -65,7 +67,7 @@ def save_resource(
         """
         INSERT INTO resources
         (source, url, title, raw_input, raw_data, cleaned_data,
-         llm_output, files, status, error, created_at, vault_title, vault_snippet)
+        llm_output, files, status, error, created_at, vault_title, vault_snippet, session_id)
         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
         """,
         (
@@ -82,6 +84,7 @@ def save_resource(
             datetime.utcnow().isoformat(),
             vault_title,
             vault_snippet,
+            session_id,
         ),
     )
 
@@ -98,7 +101,8 @@ def get_resources(limit=200):
           id, source, url, title,
           raw_input, raw_data, cleaned_data, llm_output,
           files, status, error, created_at,
-          vault_title, vault_snippet
+          vault_title, vault_snippet,
+          session_id
         FROM resources
         ORDER BY id DESC
         LIMIT ?
@@ -119,7 +123,8 @@ def get_resource(resource_id):
           id, source, url, title,
           raw_input, raw_data, cleaned_data, llm_output,
           files, status, error, created_at,
-          vault_title, vault_snippet
+          vault_title, vault_snippet,
+          session_id
         FROM resources
         WHERE id=?
         """,
