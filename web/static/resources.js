@@ -92,10 +92,14 @@ function setView(v) {
 
 /* ── Render ─────────────────────────────────────── */
 function render() {
-  const q   = document.getElementById('searchInput').value.toLowerCase();
-  let items = allItems;
+
+  const q = document.getElementById('searchInput').value.toLowerCase();
+
+  let items = [...allItems].sort((a,b)=>b.id-a.id);
+
   if (activeFilter !== 'all')
     items = items.filter(i => filterKey(i.source) === activeFilter);
+
   if (q)
     items = items.filter(i =>
       (i.vault_title||i.title||'').toLowerCase().includes(q) ||
@@ -104,6 +108,7 @@ function render() {
     );
 
   const wrap = document.getElementById('itemsWrap');
+
   if (!items.length) {
     wrap.innerHTML = `<div class="empty">
       <div class="icon">🗄️</div>
@@ -112,33 +117,137 @@ function render() {
     return;
   }
 
-  wrap.innerHTML = items.map((item) => {
-    const num         = allItems.length - allItems.indexOf(item);
-    const src         = item.source || 'unknown';
-    const cardTitle   = item.vault_title || item.title || item.url || 'Untitled';
-    const cardSnippet = item.vault_snippet || (item.llm_output||'').slice(0,160);
-    const isGrid      = currentView === 'grid';
+  /* -------- GROUP BY SESSION -------- */
+
+  const sessions = {};
+
+  items.forEach(item => {
+    const sid = item.session_id || item.id;
+    if (!sessions[sid]) sessions[sid] = [];
+    sessions[sid].push(item);
+  });
+
+  const cards = [];
+
+  Object.values(sessions).forEach(sessionItems => {
+
+    /* ---------- SESSION FOLDER ---------- */
+
+    if (sessionItems.length > 1) {
+
+      const sid = sessionItems[0].session_id;
+      const preview = sessionItems
+        .slice(0,2)
+        .map(i => esc(i.vault_title || i.title || i.url))
+        .join('<br>');
+
+      cards.push(`
+        <div class="card" onclick="openSessionPopup(${sid})">
+
+          <div class="card-header">
+            <div class="card-icon">📁</div>
+
+            <div class="card-meta">
+              <div class="card-num">SESSION</div>
+              <div class="card-title">${sessionItems.length} items</div>
+            </div>
+
+            <span class="card-badge badge-default">group</span>
+          </div>
+
+          <div class="card-snippet">
+            ${preview}
+          </div>
+
+        </div>
+      `);
+
+    } else {
+
+      /* ---------- NORMAL CARD ---------- */
+
+      const item = sessionItems[0];
+
+      const num         = allItems.length - allItems.indexOf(item);
+      const src         = item.source || 'unknown';
+      const cardTitle   = item.vault_title || item.title || item.url || 'Untitled';
+      const cardSnippet = item.vault_snippet || (item.llm_output||'').slice(0,160);
+      const isGrid      = currentView === 'grid';
+
+      cards.push(`
+        <div class="card" data-id="${item.id}" onclick="openModal(${item.id})">
+
+          <div class="card-header">
+
+            <div class="card-icon">${icon(src)}</div>
+
+            <div class="card-meta">
+              <div class="card-num">#${num}</div>
+              <div class="card-title">${esc(cardTitle)}</div>
+              ${!isGrid ? `<span class="card-date">${fmt(item.created_at)}</span>` : ''}
+            </div>
+
+            <span class="card-badge ${badgeClass(src)}">${src.replace(/_/g,' ')}</span>
+
+            <button class="card-del"
+              title="Delete"
+              onclick="askDel(event,${item.id})">🗑</button>
+
+          </div>
+
+          ${isGrid && cardSnippet
+            ? `<div class="card-snippet">${esc(cardSnippet)}…</div>`
+            : ''}
+
+          ${isGrid ? `
+          <div class="card-footer">
+            <span>
+              <span class="status-dot ${item.status==='error'
+                ? 'status-error'
+                : 'status-success'}"></span>
+              ${item.status||'processed'}
+            </span>
+            <span>${fmt(item.created_at)}</span>
+          </div>` : ''}
+
+        </div>
+      `);
+
+    }
+
+  });
+
+  wrap.innerHTML = cards.join('');
+
+}
+
+function openSessionPopup(sessionId){
+
+  const items = allItems.filter(i => i.session_id == sessionId);
+
+  const html = items.map(i => {
+
+    const title = esc(i.vault_title || i.title || i.url);
+    const src   = i.source || 'unknown';
 
     return `
-      <div class="card" data-id="${item.id}" onclick="openModal(${item.id})">
-        <div class="card-header">
-          <div class="card-icon">${icon(src)}</div>
-          <div class="card-meta">
-            <div class="card-num">#${num}</div>
-            <div class="card-title">${esc(cardTitle)}</div>
-            ${!isGrid ? `<span class="card-date">${fmt(item.created_at)}</span>` : ''}
-          </div>
-          <span class="card-badge ${badgeClass(src)}">${src.replace(/_/g,' ')}</span>
-          <button class="card-del" title="Delete" onclick="askDel(event,${item.id})">🗑</button>
-        </div>
-        ${isGrid && cardSnippet ? `<div class="card-snippet">${esc(cardSnippet)}…</div>` : ''}
-        ${isGrid ? `
-        <div class="card-footer">
-          <span><span class="status-dot ${item.status==='error'?'status-error':'status-success'}"></span>${item.status||'processed'}</span>
-          <span>${fmt(item.created_at)}</span>
-        </div>` : ''}
-      </div>`;
+      <div class="session-item" onclick="openModal(${i.id})">
+        <div class="session-icon">${icon(src)}</div>
+        <div class="session-title">${title}</div>
+      </div>
+    `;
+
   }).join('');
+
+  document.getElementById("mTitle").textContent =
+    `Session (${items.length} items)`;
+
+  document.getElementById("tab-raw").innerHTML =
+    `<div class="session-list">${html}</div>`;
+
+  document.getElementById("tab-answer").innerHTML = "";
+
+  document.getElementById("overlay").classList.add("show");
 }
 
 /* ── Modal popup ────────────────────────────────────── */
