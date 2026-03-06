@@ -19,8 +19,8 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 # ── Resolve project root ─────────────────────
-BASE_DIR   = Path(__file__).parent                        # .../web/
-ROOT_DIR   = BASE_DIR.parent                              # .../ai_resource_agent/
+BASE_DIR   = Path(__file__).parent
+ROOT_DIR   = BASE_DIR.parent
 IMAGES_DIR = ROOT_DIR / "storage" / "images"
 
 sys.path.insert(0, str(ROOT_DIR))
@@ -28,6 +28,7 @@ sys.path.insert(0, str(ROOT_DIR))
 # ── Project imports ──────────────────────────
 from main        import process_link, process_text_input, process_image_input
 from database.db import init_db
+
 
 # ─────────────────────────────────────────────
 # APP SETUP
@@ -41,7 +42,6 @@ app.mount(
     name="static",
 )
 
-# ── Init DB once on startup ──────────────────
 @app.on_event("startup")
 async def startup():
     init_db()
@@ -59,7 +59,7 @@ def home():
 
 @app.post("/chat")
 async def chat(
-    message: Optional[str]             = Form(default=None),
+    message: Optional[str]              = Form(default=None),
     images:  Optional[List[UploadFile]] = File(default=None),
 ):
     results = []
@@ -67,23 +67,27 @@ async def chat(
     # ── 1. Process message text ───────────────
     if message and message.strip():
         lines     = [l.strip() for l in message.strip().splitlines() if l.strip()]
-        urls      = [l for l in lines if l.startswith("http://") or l.startswith("https://")]
-        plain     = [l for l in lines if l not in urls]
+        # ✅ NEW — also catches bare URLs like github.com/user
+        from utils.source_detector import _looks_like_bare_url
+
+        urls  = [
+            l for l in lines
+            if l.startswith("http://") or l.startswith("https://") or _looks_like_bare_url(l)
+        ]
+        plain = [l for l in lines if l not in urls]
         plain_str = "\n".join(plain).strip()
 
-        # Process each URL separately
         for url in urls:
             try:
-                result = process_link(url)
+                result = await process_link(url)             # ← await added
                 if result:
                     results.append(result)
             except Exception as e:
                 results.append(f"Error processing '{url}': {e}")
 
-        # Process plain text as a note
         if plain_str:
             try:
-                result = process_text_input(plain_str)
+                result = await process_text_input(plain_str) # ← await added
                 if result:
                     results.append(result)
             except Exception as e:
@@ -97,16 +101,15 @@ async def chat(
             if not img or not img.filename:
                 continue
             try:
-                # Sanitize filename — remove spaces
                 safe_name = img.filename.strip().replace(" ", "_")
                 save_path = IMAGES_DIR / safe_name
 
-                # Save file to disk
                 with open(save_path, "wb") as f:
                     shutil.copyfileobj(img.file, f)
 
-                # Route to image processor (OCR), NOT process_link
-                result = process_image_input(str(save_path.resolve()))
+                result = await process_image_input(          # ← await added
+                    str(save_path.resolve())
+                )
                 if result:
                     results.append(result)
 
