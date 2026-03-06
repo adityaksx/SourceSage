@@ -92,6 +92,7 @@ def api_list_resources(limit: int = 500):
 # ── API: single resource detail ───────────────────────────
 
 @app.get("/api/resources/{resource_id}")
+
 def api_get_resource(resource_id: int):
     row = get_resource(resource_id)
     if not row:
