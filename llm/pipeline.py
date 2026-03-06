@@ -26,17 +26,17 @@ Public API consumed by main.py:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
-import requests
+import httpx
 
-from llm.llm_classifier  import classify                       # Stage 1 — re-exported
+from llm.llm_classifier  import classify                        # Stage 1 — re-exported
 from llm.prompt_builder  import build_guidance_prompt, build_enrich_prompt
-from llm.summarizer      import call_llm                       # Stage 4 raw caller
+from llm.summarizer      import call_llm, _ollama_semaphore     # ← share the SAME semaphore
 
 logger = logging.getLogger(__name__)
 
-# Try to read Ollama URL from config; fall back to default
 try:
     from config import OLLAMA_URL  # type: ignore
 except ImportError:
@@ -47,26 +47,15 @@ except ImportError:
 # MODEL CONFIG FOR PIPELINE STAGES 2 & 3
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Stage 2 + 3 use a fast model — they just need JSON decisions, not rich prose
 _PIPELINE_MODEL = "mistral:7b"
 
-# Code-related source types get deepseek-coder for guidance/enrichment too
 _CODE_TYPES: set[str] = {
     "github_repo", "github_file", "github_gist",
     "code_snippet", "notebook",
 }
 
-_PIPELINE_OPTIONS_FAST = {
-    "temperature": 0.1,    # slight creativity for inference, but mostly deterministic
-    "num_predict": 350,
-    "top_p":       0.9,
-}
-
-_PIPELINE_OPTIONS_CODE = {
-    "temperature": 0.1,
-    "num_predict": 350,
-    "top_p":       0.9,
-}
+_PIPELINE_OPTIONS_FAST = {"temperature": 0.1, "num_predict": 350, "top_p": 0.9}
+_PIPELINE_OPTIONS_CODE = {"temperature": 0.1, "num_predict": 350, "top_p": 0.9}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -74,22 +63,23 @@ _PIPELINE_OPTIONS_CODE = {
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _pipeline_model(source_type: str) -> str:
-    """Select model for pipeline intermediate stages (2 & 3)."""
     if source_type in _CODE_TYPES:
         return "deepseek-coder:6.7b"
     return _PIPELINE_MODEL
 
 
 def _pipeline_options(source_type: str) -> dict:
-    """Select generation options for pipeline intermediate stages."""
     if source_type in _CODE_TYPES:
         return _PIPELINE_OPTIONS_CODE
     return _PIPELINE_OPTIONS_FAST
 
 
-def _call_pipeline(prompt: str, source_type: str = "") -> str:
+async def _call_pipeline(prompt: str, source_type: str = "") -> str:
     """
-    Raw Ollama call for pipeline intermediate stages (2 & 3).
+    Async Ollama call for pipeline intermediate stages (2 & 3).
+    Uses the SAME _ollama_semaphore from summarizer.py — ensures
+    all Ollama calls across the entire app are serialised.
+
     Separate from summarizer.call_llm() because:
       - Uses different models (mistral:7b / deepseek-coder)
       - Uses lower num_predict (only needs JSON, not prose)
@@ -98,71 +88,131 @@ def _call_pipeline(prompt: str, source_type: str = "") -> str:
     model   = _pipeline_model(source_type)
     options = _pipeline_options(source_type)
 
-    try:
-        r = requests.post(
-            OLLAMA_URL,
-            json={
-                "model":   model,
-                "prompt":  prompt,
-                "stream":  False,
-                "options": options,
-            },
-            timeout=30,
-        )
-        r.raise_for_status()
-        return r.json().get("response", "").strip()
+    payload = {
+        "model":   model,
+        "prompt":  prompt,
+        "stream":  False,
+        "options": options,
+    }
 
-    except requests.exceptions.ConnectionError:
-        logger.error("[PIPELINE] Ollama not running")
-        return ""
-    except requests.exceptions.Timeout:
-        logger.warning(f"[PIPELINE] Timed out (model: {model})")
-        return ""
-    except requests.exceptions.HTTPError as e:
-        if "404" in str(e):
-            logger.error(
-                f"[PIPELINE] Model '{model}' not found. "
-                f"Run: ollama pull {model}"
-            )
-        else:
-            logger.error(f"[PIPELINE] HTTP error: {e}")
-        return ""
-    except Exception as e:
-        logger.error(f"[PIPELINE] Unexpected error: {e}")
-        return ""
+    async with _ollama_semaphore:                        # ← SAME semaphore as summarizer.py
+        for attempt in range(3):
+            try:
+                async with httpx.AsyncClient(timeout=30) as client:
+                    r = await client.post(OLLAMA_URL, json=payload)
+                    r.raise_for_status()
+                    return r.json().get("response", "").strip()
+
+            except httpx.ConnectError:
+                logger.error("[PIPELINE] Ollama not running")
+                return ""                               # no retry — Ollama is off
+
+            except httpx.TimeoutException:
+                logger.warning(f"[PIPELINE] Timed out (model: {model})")
+                return ""
+
+            except httpx.HTTPStatusError as e:
+                status = e.response.status_code
+                if status == 404:
+                    logger.error(
+                        f"[PIPELINE] Model '{model}' not found. "
+                        f"Run: ollama pull {model}"
+                    )
+                    return ""
+
+                if status == 500 and attempt < 2:
+                    wait = 2 * (attempt + 1)
+                    logger.warning(f"[PIPELINE] HTTP 500, retry {attempt+1}/3 in {wait}s...")
+                    await asyncio.sleep(wait)
+                    continue
+
+                logger.error(f"[PIPELINE] HTTP error: {e}")
+                return ""
+
+            except Exception as e:
+                logger.error(f"[PIPELINE] Unexpected error: {e}")
+                return ""
+
+    return ""
 
 
 def _extract_json(text: str) -> dict:
     """
     Safely extract a JSON object from an LLM response.
-    Handles markdown fences, surrounding explanation text, trailing commas.
+    Handles:
+      - Markdown fences
+      - Surrounding explanation text
+      - Trailing commas
+      - Literal newlines/control characters inside string values
+      - Multiple JSON objects — takes the FIRST complete one   ← NEW
     """
     if not text:
         return {}
 
-    # Strip markdown code fences
+    import re as _re
+
     text = text.strip()
+
+    # Strip markdown fences
     if text.startswith("```"):
         lines = text.splitlines()
-        text  = "\n".join(
-            l for l in lines if not l.strip().startswith("```")
-        )
+        text  = "\n".join(l for l in lines if not l.strip().startswith("```"))
 
+    # Find first opening brace
     start = text.find("{")
-    end   = text.rfind("}") + 1
-
-    if start == -1 or end <= start:
+    if start == -1:
         logger.warning(f"[PIPELINE] No JSON found in: {text[:100]}")
         return {}
 
+    # ── NEW: walk braces to find the FIRST complete matching } ───────────
+    depth = 0
+    end   = -1
+    in_string = False
+    escape    = False
+
+    for i, ch in enumerate(text[start:], start):
+        if escape:
+            escape = False
+            continue
+        if ch == "\\" and in_string:
+            escape = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                end = i + 1
+                break
+
+    if end == -1:
+        logger.warning(f"[PIPELINE] Unmatched braces in: {text[:100]}")
+        return {}
+
     raw_json = text[start:end]
+    # ─────────────────────────────────────────────────────────────────────
+
+    # Sanitize control characters inside quoted strings
+    def _fix_string_newlines(m):
+        return m.group(0).replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')
+
+    raw_json = _re.sub(
+        r'"[^"\\]*(?:\\.[^"\\]*)*"',
+        _fix_string_newlines,
+        raw_json,
+        flags=_re.DOTALL,
+    )
+    raw_json = _re.sub(r'(?<!\\)[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', ' ', raw_json)
 
     try:
         return json.loads(raw_json)
     except json.JSONDecodeError:
-        # Attempt to fix trailing commas (common LLM mistake)
-        import re
-        fixed = re.sub(r",\s*([}\]])", r"\1", raw_json)
+        fixed = _re.sub(r",\s*([}\]])", r"\1", raw_json)
         try:
             return json.loads(fixed)
         except json.JSONDecodeError as e:
@@ -174,50 +224,26 @@ def _extract_json(text: str) -> dict:
 # STAGE 1 — CLASSIFY  (re-exported from llm_classifier.py)
 # ─────────────────────────────────────────────────────────────────────────────
 
-# classify() is imported directly from llm_classifier and re-exported here
-# so main.py only needs: from llm.pipeline import classify, extract_guidance, enrich
-# No logic duplication — pure re-export.
 __all__ = ["classify", "extract_guidance", "enrich"]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# STAGE 2 — EXTRACTION GUIDANCE
+# STAGE 2 — EXTRACTION GUIDANCE  (now async)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def extract_guidance(user_input: str, source_type: str) -> dict:
+async def extract_guidance(user_input: str, source_type: str) -> dict:
     """
     Stage 2: Ask the LLM what the processor should focus on and skip.
+    Now async — awaits _call_pipeline() without blocking the event loop.
 
-    This runs AFTER classify() and BEFORE the processor output is cleaned.
-    The guidance dict is passed to enrich() in Stage 3 to help fill gaps.
-
-    Args:
-        user_input:  The original URL or text (first 600 chars used in prompt).
-        source_type: Detected type from Stage 1 (e.g. "github_repo").
-
-    Returns:
-        dict with keys:
-          focus_on : list[str]  — fields or sections to prioritise
-          skip     : list[str]  — noise to ignore
-          infer    : list[str]  — things that can be inferred later
-          context  : str        — one-sentence background for this content type
-
+    Returns dict with keys: focus_on, skip, infer, context
     Never raises — returns safe empty defaults on any failure.
-
-    Example:
-        guidance = extract_guidance("https://github.com/tiangolo/fastapi", "github_repo")
-        # → {
-        #     "focus_on": ["README", "tech stack", "installation"],
-        #     "skip":     ["test files", "CI config"],
-        #     "infer":    ["target audience", "maturity level"],
-        #     "context":  "This is an open source Python web framework."
-        #   }
     """
     if not user_input or not source_type:
         return _default_guidance()
 
     prompt = build_guidance_prompt(user_input, source_type)
-    raw    = _call_pipeline(prompt, source_type)
+    raw    = await _call_pipeline(prompt, source_type)          # ← await
 
     if not raw:
         logger.warning(f"[S2-GUIDANCE] Empty response for source_type={source_type}")
@@ -229,7 +255,6 @@ def extract_guidance(user_input: str, source_type: str) -> dict:
         logger.warning(f"[S2-GUIDANCE] No JSON parsed for source_type={source_type}")
         return _default_guidance()
 
-    # Sanitize — ensure correct types for each key
     result = {
         "focus_on": parsed.get("focus_on", []),
         "skip":     parsed.get("skip",     []),
@@ -237,7 +262,6 @@ def extract_guidance(user_input: str, source_type: str) -> dict:
         "context":  parsed.get("context",  ""),
     }
 
-    # Ensure lists are actually lists (model sometimes returns strings)
     for key in ("focus_on", "skip", "infer"):
         if isinstance(result[key], str):
             result[key] = [result[key]]
@@ -261,56 +285,27 @@ def extract_guidance(user_input: str, source_type: str) -> dict:
 
 
 def _default_guidance() -> dict:
-    """Safe fallback when Stage 2 fails — pipeline continues unaffected."""
-    return {
-        "focus_on": [],
-        "skip":     [],
-        "infer":    [],
-        "context":  "",
-    }
+    return {"focus_on": [], "skip": [], "infer": [], "context": ""}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# STAGE 3 — ENRICHMENT
+# STAGE 3 — ENRICHMENT  (now async)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def enrich(cleaned_data: dict, guidance: dict) -> dict:
+async def enrich(cleaned_data: dict, guidance: dict) -> dict:
     """
     Stage 3: Fill gaps in cleaned processor output using LLM inference.
+    Now async — awaits _call_pipeline() without blocking the event loop.
 
-    Runs AFTER utils/cleaner.py has cleaned the processor dict,
-    and BEFORE summarizer.summarize_data() builds the final answer.
-
-    The LLM looks at what fields are already present and what the
-    Stage 2 guidance says should be inferred, then adds new fields
-    (inferred_audience, inferred_difficulty, related_tools, missing_context).
-
-    Args:
-        cleaned_data: Dict from clean_processor_output() — already cleaned.
-        guidance:     Dict from extract_guidance() — Stage 2 output.
-
-    Returns:
-        The same cleaned_data dict, augmented with any inferred fields.
-        Never removes or overwrites existing fields — only ADDS new ones.
-
+    Never removes or overwrites existing fields — only ADDS new ones.
     Never raises — returns cleaned_data unchanged on any failure.
-
-    Example:
-        enriched = enrich(cleaned, guidance)
-        # cleaned_data now has extra keys like:
-        # "inferred_audience":   "backend Python developers"
-        # "inferred_difficulty": "Intermediate"
-        # "related_tools":       "Flask, Django, Starlette"
-        # "missing_context":     "This project has 70k+ GitHub stars"
     """
     if not cleaned_data:
         return cleaned_data
 
     source_type = cleaned_data.get("source_type", "")
 
-    # Skip enrichment if guidance has nothing to infer
-    # and we have no meaningful content to reason about
-    infer_list = guidance.get("infer", [])
+    infer_list  = guidance.get("infer", [])
     has_content = any(
         isinstance(v, str) and len(v) > 30
         for k, v in cleaned_data.items()
@@ -322,7 +317,7 @@ def enrich(cleaned_data: dict, guidance: dict) -> dict:
         return cleaned_data
 
     prompt   = build_enrich_prompt(cleaned_data, guidance)
-    raw      = _call_pipeline(prompt, source_type)
+    raw      = await _call_pipeline(prompt, source_type)        # ← await
 
     if not raw:
         logger.warning("[S3-ENRICH] Empty response, returning cleaned data unchanged")
@@ -335,7 +330,6 @@ def enrich(cleaned_data: dict, guidance: dict) -> dict:
         print("  [S3-ENRICH]   nothing new to add")
         return cleaned_data
 
-    # ── Validate inferred fields ──────────────────────────────────────────
     _ALLOWED_INFERRED_FIELDS: set[str] = {
         "inferred_audience",
         "inferred_difficulty",
@@ -345,10 +339,6 @@ def enrich(cleaned_data: dict, guidance: dict) -> dict:
 
     added = []
     for key, value in inferred.items():
-        # Only add fields that are:
-        #  1. In the allowed set (prevent LLM from hallucinating random keys)
-        #  2. Not already present in cleaned_data (never overwrite real data)
-        #  3. Non-empty strings
         if (
             key in _ALLOWED_INFERRED_FIELDS
             and key not in cleaned_data
@@ -369,35 +359,28 @@ def enrich(cleaned_data: dict, guidance: dict) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PIPELINE HEALTH CHECK
+# PIPELINE HEALTH CHECK  (now async)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def check_pipeline_models() -> dict[str, bool]:
+async def check_pipeline_models() -> dict[str, bool]:
     """
-    Check which pipeline models are available in Ollama.
+    Async check which pipeline models are available in Ollama.
     Returns dict of model_name → is_available.
-
-    Usage:
-        status = check_pipeline_models()
-        # → {"mistral:7b": True, "deepseek-coder:6.7b": False}
     """
-    required_models = {
-        _PIPELINE_MODEL,
-        "deepseek-coder:6.7b",
-    }
-
+    required_models = {_PIPELINE_MODEL, "deepseek-coder:6.7b"}
     status: dict[str, bool] = {}
 
     try:
         base_url = OLLAMA_URL.replace("/api/generate", "")
-        r = requests.get(f"{base_url}/api/tags", timeout=5)
-        if r.status_code == 200:
-            available = {m["name"] for m in r.json().get("models", [])}
-            for model in required_models:
-                status[model] = model in available
-        else:
-            for model in required_models:
-                status[model] = False
+        async with httpx.AsyncClient(timeout=5) as client:
+            r = await client.get(f"{base_url}/api/tags")
+            if r.status_code == 200:
+                available = {m["name"] for m in r.json().get("models", [])}
+                for model in required_models:
+                    status[model] = model in available
+            else:
+                for model in required_models:
+                    status[model] = False
     except Exception:
         for model in required_models:
             status[model] = False
@@ -410,68 +393,68 @@ def check_pipeline_models() -> dict[str, bool]:
 # ─────────────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    import logging
+    import asyncio
     logging.basicConfig(level=logging.INFO)
 
-    print("=" * 60)
-    print("Pipeline Model Health Check")
-    print("=" * 60)
-    model_status = check_pipeline_models()
-    for model, available in model_status.items():
-        icon = "✅" if available else "❌"
-        tip  = "" if available else f"  ← run: ollama pull {model}"
-        print(f"  {icon} {model}{tip}")
+    async def main():
+        print("=" * 60)
+        print("Pipeline Model Health Check")
+        print("=" * 60)
+        model_status = await check_pipeline_models()            # ← await
+        for model, available in model_status.items():
+            icon = "✅" if available else "❌"
+            tip  = "" if available else f"  ← run: ollama pull {model}"
+            print(f"  {icon} {model}{tip}")
 
-    print()
-    print("=" * 60)
-    print("Stage 1 — Classify")
-    print("=" * 60)
-    test_inputs = [
-        "https://github.com/tiangolo/fastapi",
-        "https://arxiv.org/abs/2303.08774",
-        "def fibonacci(n): return n if n < 2 else fibonacci(n-1) + fibonacci(n-2)",
-        "India's Sarvam launches Indus AI chat app as competition heats up",
-    ]
-
-    for inp in test_inputs:
-        result = classify(inp)
-        print(f"  Input : {inp[:55]}")
-        print(f"  Result: {result['source_type']} ({result['confidence']}) — {result['reason']}")
         print()
+        print("=" * 60)
+        print("Stage 1 — Classify")
+        print("=" * 60)
+        test_inputs = [
+            "https://github.com/tiangolo/fastapi",
+            "https://arxiv.org/abs/2303.08774",
+            "def fibonacci(n): return n if n < 2 else fibonacci(n-1) + fibonacci(n-2)",
+            "India's Sarvam launches Indus AI chat app",
+        ]
 
-    print("=" * 60)
-    print("Stage 2 — Extraction Guidance")
-    print("=" * 60)
-    guidance = extract_guidance(
-        "https://github.com/tiangolo/fastapi",
-        "github_repo"
-    )
-    print(f"  focus_on : {guidance['focus_on']}")
-    print(f"  skip     : {guidance['skip']}")
-    print(f"  infer    : {guidance['infer']}")
-    print(f"  context  : {guidance['context']}")
+        for inp in test_inputs:
+            result = await classify(inp)                        # ← await (once llm_classifier is fixed)
+            print(f"  Input : {inp[:55]}")
+            print(f"  Result: {result['source_type']} ({result['confidence']}) — {result['reason']}")
+            print()
 
-    print()
-    print("=" * 60)
-    print("Stage 3 — Enrichment")
-    print("=" * 60)
-    mock_cleaned = {
-        "source_type": "github_repo",
-        "title":       "FastAPI",
-        "description": "FastAPI framework, high performance, easy to learn, fast to code, ready for production.",
-        "readme":      "FastAPI is a modern, fast web framework for building APIs with Python 3.7+.",
-    }
-    mock_guidance = {
-        "focus_on": ["README", "tech stack"],
-        "skip":     ["CI config"],
-        "infer":    ["target audience", "related tools", "difficulty level"],
-        "context":  "This is an open source Python web framework on GitHub.",
-    }
-    enriched = enrich(mock_cleaned, mock_guidance)
-    new_fields = {
-        k: v for k, v in enriched.items()
-        if k not in mock_cleaned
-    }
-    print(f"  New fields added: {list(new_fields.keys())}")
-    for k, v in new_fields.items():
-        print(f"    {k}: {v}")
+        print("=" * 60)
+        print("Stage 2 — Extraction Guidance")
+        print("=" * 60)
+        guidance = await extract_guidance(                      # ← await
+            "https://github.com/tiangolo/fastapi",
+            "github_repo"
+        )
+        print(f"  focus_on : {guidance['focus_on']}")
+        print(f"  skip     : {guidance['skip']}")
+        print(f"  infer    : {guidance['infer']}")
+        print(f"  context  : {guidance['context']}")
+
+        print()
+        print("=" * 60)
+        print("Stage 3 — Enrichment")
+        print("=" * 60)
+        mock_cleaned = {
+            "source_type": "github_repo",
+            "title":       "FastAPI",
+            "description": "FastAPI framework, high performance, easy to learn.",
+            "readme":      "FastAPI is a modern, fast web framework for building APIs with Python 3.7+.",
+        }
+        mock_guidance = {
+            "focus_on": ["README", "tech stack"],
+            "skip":     ["CI config"],
+            "infer":    ["target audience", "related tools", "difficulty level"],
+            "context":  "This is an open source Python web framework on GitHub.",
+        }
+        enriched   = await enrich(mock_cleaned, mock_guidance)  # ← await
+        new_fields = {k: v for k, v in enriched.items() if k not in mock_cleaned}
+        print(f"  New fields added: {list(new_fields.keys())}")
+        for k, v in new_fields.items():
+            print(f"    {k}: {v}")
+
+    asyncio.run(main())
