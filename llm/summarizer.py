@@ -5,7 +5,7 @@ Calls the local Ollama LLM and returns structured knowledge output.
 
 Responsibilities (this file ONLY):
   - Model selection by source_type
-  - Raw HTTP call to Ollama API
+  - Raw HTTP call to Ollama API  (now ASYNC via httpx)
   - Paragraph-aware chunking for long content
   - Multi-chunk merge via build_merge_prompt()
 
@@ -22,12 +22,12 @@ Public API consumed by other files:
 
 from __future__ import annotations
 
+import asyncio
 import logging
-import requests
+import httpx
 
 from llm.prompt_builder import build_summary_prompt, build_merge_prompt
 
-# Try to read Ollama URL from config; fall back to default
 try:
     from config import OLLAMA_URL  # type: ignore
 except ImportError:
@@ -35,33 +35,30 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+# ─────────────────────────────────────────────────────────────────────────────
+# SEMAPHORE — only 1 Ollama request at a time, prevents HTTP 500 on concurrency
+# ─────────────────────────────────────────────────────────────────────────────
+_ollama_semaphore = asyncio.Semaphore(1)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # MODEL ROUTING
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Code-focused sources → deepseek-coder for better code understanding
 _CODE_TYPES: set[str] = {
-    "github_repo",
-    "github_file",
-    "github_gist",    # FIX: was missing — gists are raw code
-    "code_snippet",
-    "notebook",       # FIX: was missing — Jupyter notebooks are code
+    "github_repo", "github_file", "github_gist",
+    "code_snippet", "notebook",
 }
 
-# Long, dense content → larger model for deeper reasoning
 _DEEP_ANALYSIS_TYPES: set[str] = {
-    "arxiv_paper",
-    "pdf_document",
-    "substack_article",
-    "medium_article",  # often long-form technical writing
+    "arxiv_paper", "pdf_document",
+    "substack_article", "medium_article",
 }
 
 _DEFAULT_MODEL = "qwen2.5:7b-instruct"
 _CODE_MODEL    = "deepseek-coder:6.7b"
 _DEEP_MODEL    = "qwen2.5:14b"
 
-# Per-model generation options
 _MODEL_OPTIONS: dict[str, dict] = {
     _CODE_MODEL:    {"temperature": 0.2, "num_predict": 1200, "top_p": 0.9},
     _DEEP_MODEL:    {"temperature": 0.3, "num_predict": 2000, "top_p": 0.9},
@@ -72,10 +69,6 @@ _DEFAULT_OPTIONS: dict = {"temperature": 0.3, "num_predict": 1500, "top_p": 0.9}
 
 
 def get_model(source_type: str) -> str:
-    """
-    Select the best Ollama model for a given source_type.
-    Called by call_llm() automatically — callers don't need to specify model.
-    """
     if source_type in _CODE_TYPES:
         return _CODE_MODEL
     if source_type in _DEEP_ANALYSIS_TYPES:
@@ -84,51 +77,41 @@ def get_model(source_type: str) -> str:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# OLLAMA HEALTH CHECK
+# OLLAMA HEALTH CHECK  (now async)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def check_ollama() -> tuple[bool, str]:
+async def check_ollama() -> tuple[bool, str]:
     """
-    Check whether Ollama is running and reachable.
+    Async check whether Ollama is running and reachable.
     Returns (is_running: bool, message: str).
-
-    Usage:
-        ok, msg = check_ollama()
-        if not ok: return msg
     """
     try:
         base_url = OLLAMA_URL.replace("/api/generate", "")
-        r = requests.get(f"{base_url}/api/tags", timeout=5)
-        if r.status_code == 200:
-            models = [m["name"] for m in r.json().get("models", [])]
-            return True, f"Ollama running. Available models: {models}"
-        return False, f"Ollama returned status {r.status_code}"
-    except requests.exceptions.ConnectionError:
+        async with httpx.AsyncClient(timeout=5) as client:
+            r = await client.get(f"{base_url}/api/tags")
+            if r.status_code == 200:
+                models = [m["name"] for m in r.json().get("models", [])]
+                return True, f"Ollama running. Available models: {models}"
+            return False, f"Ollama returned status {r.status_code}"
+    except httpx.ConnectError:
         return False, "Ollama is not running. Start it with: ollama serve"
     except Exception as e:
         return False, f"Ollama health check failed: {e}"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CORE LLM CALL
+# CORE LLM CALL  (now async + semaphore + retry)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def call_llm(prompt: str, source_type: str = "") -> str:
+async def call_llm(prompt: str, source_type: str = "") -> str:
     """
-    Send a ready-built prompt string to Ollama.
-    Model is selected automatically from source_type.
+    Async HTTP call to Ollama. Semaphore ensures only 1 call runs at a time.
+    Retries up to 3 times on HTTP 500 with backoff.
 
     Called by:
       - summarize_data()    (Stage 4 final answer)
       - pipeline.py         (Stage 1, 2, 3 intermediate calls)
       - main.py             (multi-input merge)
-
-    Args:
-        prompt:      Complete prompt string — no further wrapping done here.
-        source_type: Used only for model selection. Empty → default model.
-
-    Returns:
-        LLM response string, or an [ERROR] prefixed message on failure.
     """
     model   = get_model(source_type)
     options = _MODEL_OPTIONS.get(model, _DEFAULT_OPTIONS)
@@ -136,62 +119,71 @@ def call_llm(prompt: str, source_type: str = "") -> str:
     logger.info(f"[LLM] model={model}  source={source_type or 'default'}")
     print(f"  [LLM] model={model}  source={source_type or 'default'}")
 
-    try:
-        r = requests.post(
-            OLLAMA_URL,
-            json={
-                "model":   model,
-                "prompt":  prompt,
-                "stream":  False,
-                "options": options,
-            },
-            timeout=240,
-        )
-        r.raise_for_status()
-        response = r.json().get("response", "").strip()
+    payload = {
+        "model":   model,
+        "prompt":  prompt,
+        "stream":  False,
+        "options": options,
+    }
 
-        if not response:
-            logger.warning(f"[LLM] Empty response from {model}")
-            return "[ERROR] LLM returned an empty response. Try again."
+    async with _ollama_semaphore:                        # ← KEY FIX: no concurrent calls
+        for attempt in range(3):
+            try:
+                async with httpx.AsyncClient(timeout=240) as client:
+                    r = await client.post(OLLAMA_URL, json=payload)
+                    r.raise_for_status()
 
-        return response
+                response = r.json().get("response", "").strip()
+                if not response:
+                    logger.warning(f"[LLM] Empty response from {model}")
+                    return "[ERROR] LLM returned an empty response. Try again."
 
-    except requests.exceptions.ConnectionError:
-        msg = "[ERROR] Ollama is not running. Start it with: ollama serve"
-        logger.error(msg)
-        return msg
-    except requests.exceptions.Timeout:
-        msg = f"[ERROR] Ollama timed out after 240s (model: {model})."
-        logger.error(msg)
-        return msg
-    except requests.exceptions.HTTPError as e:
-        # 404 usually means the model isn't pulled yet
-        if "404" in str(e):
-            msg = (
-                f"[ERROR] Model '{model}' not found in Ollama.\n"
-                f"Run: ollama pull {model}"
-            )
-        else:
-            msg = f"[ERROR] Ollama HTTP error: {e}"
-        logger.error(msg)
-        return msg
-    except Exception as e:
-        msg = f"[ERROR] LLM call failed: {e}"
-        logger.error(msg)
-        return msg
+                return response
+
+            except httpx.ConnectError:
+                msg = "[ERROR] Ollama is not running. Start it with: ollama serve"
+                logger.error(msg)
+                return msg                               # no retry — Ollama is off
+
+            except httpx.TimeoutException:
+                msg = f"[ERROR] Ollama timed out after 240s (model: {model})."
+                logger.error(msg)
+                return msg
+
+            except httpx.HTTPStatusError as e:
+                status = e.response.status_code
+                if status == 404:
+                    msg = (
+                        f"[ERROR] Model '{model}' not found in Ollama.\n"
+                        f"Run: ollama pull {model}"
+                    )
+                    logger.error(msg)
+                    return msg                           # no retry — model missing
+
+                if status == 500 and attempt < 2:
+                    wait = 2 * (attempt + 1)
+                    logger.warning(f"[LLM] HTTP 500, retry {attempt+1}/3 in {wait}s...")
+                    await asyncio.sleep(wait)            # ← backoff before retry
+                    continue
+
+                msg = f"[ERROR] Ollama HTTP error: {e}"
+                logger.error(msg)
+                return msg
+
+            except Exception as e:
+                msg = f"[ERROR] LLM call failed: {e}"
+                logger.error(msg)
+                return msg
+
+    return "[ERROR] LLM call failed after 3 retries."
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PARAGRAPH-AWARE CHUNKING
+# PARAGRAPH-AWARE CHUNKING  (unchanged — no async needed here)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def chunk_text(text: str, max_chars: int = 3000) -> list[str]:
-    """
-    Split text into chunks ≤ max_chars, breaking at paragraph then sentence
-    boundaries. Never cuts mid-sentence.
-
-    Used by summarize_data() when a field exceeds 3000 characters.
-    """
+    """Split text into chunks ≤ max_chars at paragraph/sentence boundaries."""
     if not text:
         return []
 
@@ -203,17 +195,13 @@ def chunk_text(text: str, max_chars: int = 3000) -> list[str]:
     current: str       = ""
 
     for para in paragraphs:
-        # Paragraph fits in current chunk
         if len(current) + len(para) + 2 <= max_chars:
             current = (current + "\n\n" + para).strip() if current else para
-
         else:
-            # Save current chunk before starting a new one
             if current:
                 chunks.append(current)
                 current = ""
 
-            # Paragraph itself is too long — split at sentence level
             if len(para) > max_chars:
                 sentences = para.replace(". ", ".\n").split("\n")
                 for sent in sentences:
@@ -223,15 +211,12 @@ def chunk_text(text: str, max_chars: int = 3000) -> list[str]:
                     if len(current) + len(sent) + 1 <= max_chars:
                         current = (current + " " + sent).strip() if current else sent
                     else:
-                        # FIX: flush current before starting next sentence
                         if current:
                             chunks.append(current)
-                        # If single sentence exceeds max_chars, keep it as-is
                         current = sent
             else:
                 current = para
 
-    # Flush remaining content
     if current:
         chunks.append(current)
 
@@ -239,29 +224,18 @@ def chunk_text(text: str, max_chars: int = 3000) -> list[str]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# MAIN SUMMARIZATION ENTRY POINTS
+# MAIN SUMMARIZATION ENTRY POINTS  (now async)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def summarize_data(data: dict) -> str:
+async def summarize_data(data: dict) -> str:
     """
-    Main entry point. Accepts a cleaned + enriched processor output dict.
-    Builds prompt via prompt_builder.py and calls the correct model.
-    Handles chunking for long fields automatically.
+    Async entry point. Accepts cleaned + enriched processor output dict.
+    Handles chunking automatically.
 
     Called by: main.py → _run_pipeline()
-    Receives:  already-cleaned dict from utils/cleaner.py
-               already-enriched dict from llm/pipeline.py Stage 3
-
-    Args:
-        data: Dict with keys like source_type, title, content,
-              transcript, readme, ocr_text, description, etc.
-
-    Returns:
-        Final structured LLM output string (MAIN IDEA / KEY INSIGHTS / TAGS…)
     """
     source_type = data.get("source_type", "")
 
-    # Fields that might be too long for a single LLM context window
     _LONG_FIELDS = ["transcript", "content", "body", "text", "readme", "ocr_text"]
 
     needs_chunking = any(
@@ -269,12 +243,10 @@ def summarize_data(data: dict) -> str:
         for f in _LONG_FIELDS
     )
 
-    # ── Short enough — single call ────────────────────────────────────────
     if not needs_chunking:
         prompt = build_summary_prompt(data)
-        return call_llm(prompt, source_type)
+        return await call_llm(prompt, source_type)          # ← await
 
-    # ── Find the longest field to chunk ──────────────────────────────────
     target_field = max(
         (f for f in _LONG_FIELDS if isinstance(data.get(f), str) and data.get(f)),
         key=lambda f: len(data.get(f, "")),
@@ -282,10 +254,8 @@ def summarize_data(data: dict) -> str:
     )
 
     if not target_field:
-        # No long string field found despite check — just call normally
-        return call_llm(build_summary_prompt(data), source_type)
+        return await call_llm(build_summary_prompt(data), source_type)
 
-    # ── Chunk and summarize each part ────────────────────────────────────
     chunks = chunk_text(data[target_field])
     logger.info(f"[LLM] Chunking '{target_field}' into {len(chunks)} parts")
     print(f"  [LLM] Chunking '{target_field}' into {len(chunks)} parts")
@@ -294,47 +264,33 @@ def summarize_data(data: dict) -> str:
     for i, chunk in enumerate(chunks):
         print(f"  [LLM] Summarizing chunk {i + 1}/{len(chunks)}...")
         chunk_data = {**data, target_field: chunk}
-        partial = call_llm(build_summary_prompt(chunk_data), source_type)
-        # Don't accumulate error messages as summaries
+        partial = await call_llm(build_summary_prompt(chunk_data), source_type)  # ← await
         if not partial.startswith("[ERROR]"):
             partial_summaries.append(partial)
 
     if not partial_summaries:
         return "[ERROR] All chunk summaries failed."
-
     if len(partial_summaries) == 1:
         return partial_summaries[0]
 
-    # ── Merge partial summaries into one final answer ─────────────────────
     print("  [LLM] Merging chunks into final answer...")
-    return call_llm(build_merge_prompt(partial_summaries), source_type="")
+    return await call_llm(build_merge_prompt(partial_summaries), source_type="")  # ← await
 
 
-def summarize_text(text: str, source_type: str = "plain_text") -> str:
-    """
-    Convenience wrapper for raw string input (no processor dict needed).
-
-    Usage:
-        result = summarize_text("def foo(): ...", source_type="code_snippet")
-    """
+async def summarize_text(text: str, source_type: str = "plain_text") -> str:
+    """Async convenience wrapper for raw string input."""
     if not text or not text.strip():
         return "No text provided."
-    return summarize_data({"source_type": source_type, "content": text})
+    return await summarize_data({"source_type": source_type, "content": text})
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # LEGACY ALIAS
 # ─────────────────────────────────────────────────────────────────────────────
 
-def summarize(prompt: str) -> str:
-    """
-    Legacy alias — kept for backwards compatibility only.
-    Treats input as a ready-built prompt and sends directly to LLM.
-    Does NOT wrap it in another prompt template.
-
-    Prefer call_llm() for new code.
-    """
-    return call_llm(prompt, source_type="")
+async def summarize(prompt: str) -> str:
+    """Legacy alias — kept for backwards compatibility."""
+    return await call_llm(prompt, source_type="")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -342,17 +298,21 @@ def summarize(prompt: str) -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    import asyncio
     logging.basicConfig(level=logging.INFO)
 
-    print("Checking Ollama...")
-    ok, msg = check_ollama()
-    print(f"  {'✅' if ok else '❌'} {msg}\n")
+    async def main():
+        print("Checking Ollama...")
+        ok, msg = await check_ollama()
+        print(f"  {'✅' if ok else '❌'} {msg}\n")
 
-    if ok:
-        print("Quick test — summarizing plain text:")
-        result = summarize_text(
-            "FastAPI is a modern Python web framework for building APIs. "
-            "It uses type hints for validation and generates OpenAPI docs automatically.",
-            source_type="plain_text"
-        )
-        print(result)
+        if ok:
+            print("Quick test — summarizing plain text:")
+            result = await summarize_text(
+                "FastAPI is a modern Python web framework for building APIs. "
+                "It uses type hints for validation and generates OpenAPI docs automatically.",
+                source_type="plain_text"
+            )
+            print(result)
+
+    asyncio.run(main())
