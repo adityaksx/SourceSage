@@ -85,6 +85,7 @@ def api_list_resources(limit: int = 500):
             "created_at":    row[11],
             "vault_title":   row[12],
             "vault_snippet": row[13],
+            "session_id":    row[14],
         })
     return {"resources": items}
 
