@@ -1,183 +1,353 @@
-```markdown
 # 🤖 AI Resource Agent
 
-A fully async, multi-source AI agent that accepts URLs, plain text, or images — automatically detects the source type, routes to the right processor, runs a clean → enrich → summarize LLM pipeline, and saves everything to a local database. Served via a FastAPI web interface.
+![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
+![FastAPI](https://img.shields.io/badge/FastAPI-Async-green)
+![LLM](https://img.shields.io/badge/LLM-Ollama-orange)
+![Database](https://img.shields.io/badge/Database-SQLite-lightgrey)
+![License](https://img.shields.io/badge/License-MIT-purple)
+
+> **Turn any link, text, or image into structured AI knowledge.**
+
+AI Resource Agent is an **async multi-source intelligence pipeline** that accepts URLs, text, or files — automatically detects their type, extracts useful data, enriches it using an LLM, and stores everything in a searchable resource vault.
+
+It acts like a **personal AI knowledge ingestion engine**.
 
 ---
 
-## ✨ Features
+# ✨ What Makes It Cool
 
-- **Multi-Source Input** — Paste a YouTube link, GitHub repo, Instagram post, web article, ArXiv paper, Hugging Face model, plain text, or a local image/file
-- **Smart Source Detection** — Two-stage detection: fast regex rules first, then an LLM classifier fallback for ambiguous inputs
-- **Async Pipeline** — Fully `async/await` throughout; no event-loop blocking
-- **Multi-Stage LLM Pipeline** — classify → extract guidance → clean → enrich → summarize
-- **Persistent Database** — Every processed resource is saved with vault metadata (title, snippet, source type, status)
-- **FastAPI Web UI** — Chat-style interface accessible from the browser
-- **CLI Mode** — Run `python main.py` for a terminal REPL
+🧠 **Smart Input Understanding**
+Paste almost anything:
+
+* YouTube video
+* GitHub repository
+* Research paper
+* Blog article
+* Instagram post
+* Local image or file
+* Plain text notes
+
+The agent **figures out what it is automatically.**
 
 ---
 
-## 📁 Project Structure
+⚡ **Async End-to-End Pipeline**
+
+No blocking calls. Everything runs with `async/await`:
 
 ```
-ai_resource_agent/
+detect → extract → clean → enrich → summarize → store
+```
+
+Fast and scalable.
+
+---
+
+🧩 **Modular Architecture**
+
+Each content type has its own processor:
+
+```
+YouTube → youtube_processor
+GitHub → github_processor
+Web → web_processor
+Image → OCR pipeline
+Text → text processor
+```
+
+Easy to extend with new sources.
+
+---
+
+🗄 **Local Knowledge Vault**
+
+Every processed resource is stored in SQLite with:
+
+* title
+* summary
+* source type
+* cleaned data
+* enriched LLM insights
+
+Your personal **AI knowledge database**.
+
+---
+
+🌐 **Two Ways to Use It**
+
+**Web Interface**
+
+```
+FastAPI chat interface
+```
+
+Paste links and instantly get structured insights.
+
+**CLI Mode**
+
+```
+python main.py
+```
+
+Simple terminal REPL.
+
+---
+
+# 🧠 System Architecture
+
+```
+User Input
+(URL / Text / Image)
+        │
+        ▼
+┌───────────────────────────────┐
+│ Source Detection              │
+│ 1️⃣ Regex rules               │
+│ 2️⃣ LLM fallback classifier   │
+└───────────────────────────────┘
+        │
+        ▼
+┌───────────────────────────────┐
+│ Source Processor              │
+│ YouTube | GitHub | Web        │
+│ Instagram | Text | Image OCR  │
+└───────────────────────────────┘
+        │
+        ▼
+┌───────────────────────────────┐
+│ LLM Processing Pipeline       │
+│ classify → clean → enrich     │
+│ summarize                     │
+└───────────────────────────────┘
+        │
+        ▼
+SQLite Database
+        │
+        ▼
+Web UI / CLI Output
+```
+
+---
+
+# 🌍 Supported Sources
+
+| Category    | Supported                         |
+| ----------- | --------------------------------- |
+| 🎥 Video    | YouTube videos, shorts, playlists |
+| 💻 Code     | GitHub repos, files, gists        |
+| 📱 Social   | Instagram posts, Reddit           |
+| 📰 Articles | Medium, Substack, Notion          |
+| 📚 Research | ArXiv papers                      |
+| 🤖 AI Tools | HuggingFace models & datasets     |
+| 🌐 Web      | Any webpage                       |
+| 📂 Files    | Images, PDFs, notebooks           |
+| 📝 Text     | Plain text notes                  |
+
+⚠️ Login-protected sources (LinkedIn etc.) are not supported — paste the text instead.
+
+---
+
+# 📂 Project Structure
+
+```
+ai_resource_agent
 │
-├── main.py                  # Central async router & entry point
-├── config.py                # Configuration (env vars, constants)
-├── .env                     # API keys / secrets (not committed)
+├── main.py                # Entry point & async router
+├── config.py              # Configuration
+├── .env                   # API keys
 │
-├── processors/
-│   ├── youtube_processor.py    # YouTube videos, shorts, playlists
-│   ├── github_processor.py     # GitHub repos, files, gists
-│   ├── web_processor.py        # General web, Medium, Substack, ArXiv, HuggingFace, Reddit, etc.
-│   ├── instagram_processor.py  # Instagram posts & reels
-│   ├── text_processor.py       # Plain text / pasted content
-│   └── image_processor.py      # Local images with OCR
+├── processors/            # Source processors
+│   ├── youtube_processor.py
+│   ├── github_processor.py
+│   ├── web_processor.py
+│   ├── instagram_processor.py
+│   ├── text_processor.py
+│   └── image_processor.py
 │
-├── llm/
-│   ├── pipeline.py             # classify(), extract_guidance(), enrich()
-│   ├── summarizer.py           # summarize_data(), call_llm()
-│   ├── prompt_builder.py       # Source-specific prompt construction
-│   ├── llm_classifier.py       # LLM-based source type classifier
-│   ├── ollama_client.py        # Ollama local LLM client
-│   └── embeddings.py           # Embedding utilities
+├── llm/                   # LLM pipeline
+│   ├── pipeline.py
+│   ├── summarizer.py
+│   ├── prompt_builder.py
+│   ├── llm_classifier.py
+│   ├── ollama_client.py
+│   └── embeddings.py
 │
 ├── utils/
-│   ├── source_detector.py      # Regex-based source detection (Stage 1)
-│   └── cleaner.py              # Cleans & normalises processor output dicts
+│   ├── source_detector.py
+│   └── cleaner.py
 │
 ├── database/
-│   └── db.py                   # SQLite init, save_resource(), queries
+│   └── db.py
 │
 └── web/
-    ├── app.py                  # FastAPI app — /chat endpoint + static serving
-    ├── templates/              # Jinja2 HTML templates
-    └── static/                 # CSS / JS assets
+    ├── app.py
+    ├── templates/
+    └── static/
 ```
 
 ---
 
-## 🔄 How It Works
+# 🚀 Getting Started
 
-```
-User Input (URL / text / image)
-        │
-        ▼
-  Stage 1: Rule-based source detection  (utils/source_detector.py)
-        │
-        ▼ (ambiguous? → Stage 2)
-  Stage 2: LLM classifier fallback      (llm/llm_classifier.py)
-        │
-        ▼
-  Route to Processor
-  ┌─────────────────────────────────────────────┐
-  │  YouTube · GitHub · Web · Instagram         │
-  │  Text · Image (OCR)                         │
-  └─────────────────────────────────────────────┘
-        │
-        ▼
-  Stage 3: extract_guidance()  →  clean()  →  enrich()
-        │
-        ▼
-  Stage 4: summarize_data()  via  call_llm()
-        │
-        ▼
-  Save to SQLite DB  +  Return LLM output to user
-```
-
----
-
-## 🌐 Supported Sources
-
-| Category | Sources |
-|---|---|
-| **Video** | YouTube videos, shorts, playlists |
-| **Code** | GitHub repos, files, gists |
-| **Social** | Instagram posts, reels, Reddit posts/subreddits |
-| **Articles** | Medium, Substack, Notion pages, ArXiv papers |
-| **AI/ML** | HuggingFace models, datasets, spaces |
-| **Web** | Any general webpage, Pastebin, Loom, Vimeo |
-| **Files** | PDF (URL or local), images, plain text, code files, notebooks |
-| **Text** | Pasted plain text or notes |
-
-> ⚠️ **Not supported:** LinkedIn profiles/company pages (login-protected). Paste the content text directly instead.
-
----
-
-## 🚀 Getting Started
-
-### Prerequisites
-
-- Python 3.10+
-- [Ollama](https://ollama.ai/) running locally (or configure another LLM backend)
-
-### Installation
+## 1️⃣ Clone Repo
 
 ```bash
 git clone https://github.com/adityaksx/ai_resource_agent.git
 cd ai_resource_agent
+```
+
+---
+
+## 2️⃣ Install Dependencies
+
+```bash
 pip install -r requirements.txt
 ```
 
-### Configuration
+---
 
-Create a `.env` file in the project root:
+## 3️⃣ Setup Environment
 
-```env
+Create `.env`
+
+```
 OLLAMA_MODEL=llama3
-# add any other keys required by processors
 ```
 
-### Run (Web UI)
+---
+
+## 4️⃣ Run Web Interface
 
 ```bash
 uvicorn web.app:app --reload
 ```
 
-Then open [http://localhost:8000](http://localhost:8000) in your browser.
+Open:
 
-### Run (CLI)
+```
+http://localhost:8000
+```
 
-```bash
+---
+
+## 5️⃣ Run CLI
+
+```
 python main.py
 ```
 
-Paste any URL, text, or a local file/image path at the prompt. Type `exit` to quit.
+Paste any:
+
+* URL
+* text
+* file path
+* image
 
 ---
 
-## 🧩 Key Modules
+# 🧩 Key Components
 
-### `main.py`
-The central async router. Accepts any combination of URLs + text + image paths, detects source types, delegates to the right processor, runs the full pipeline, saves to DB, and returns the final LLM output.
+## `main.py`
 
-### `llm/pipeline.py`
-Implements the multi-stage async pipeline:
-- `classify(input)` — identifies the content type
-- `extract_guidance(input, source_type)` — pulls focus hints for the summarizer
-- `enrich(cleaned_data, guidance)` — augments data with context before summarization
+Central async router.
 
-### `llm/prompt_builder.py`
-Constructs source-specific prompts. Each source type (YouTube, GitHub, ArXiv, etc.) gets a tailored prompt structure for the best LLM output.
+Responsibilities:
 
-### `processors/`
-Each processor extracts raw structured data from its source and returns a normalized dict. The `web_processor.py` handles the broadest range of URLs including ArXiv, HuggingFace, Reddit, and generic sites.
-
-### `database/db.py`
-SQLite-backed storage. Saves every resource with `vault_title`, `vault_snippet`, `source`, `status`, `raw_input`, `raw_data`, `cleaned_data`, and `llm_output`.
+* detect input type
+* call correct processor
+* run LLM pipeline
+* save results to database
 
 ---
 
-## 🛠️ Architecture Notes
+## `llm/pipeline.py`
 
-- **No blocking I/O** — all network calls and LLM calls use `async/await`
-- **Separation of concerns** — routing, prompting, cleaning, and DB operations are in separate modules
-- **Graceful error handling** — friendly messages for JS-only sites, 404s, timeouts, and login-protected pages
-- **Mixed input** — sending multiple URLs + text in one request is supported; the agent processes each independently then synthesizes a combined insight
+Core LLM workflow.
 
----
-
-## 📄 License
-
-This project is open source. See [LICENSE](LICENSE) for details.
 ```
+classify()
+extract_guidance()
+clean()
+enrich()
+summarize()
+```
+
+---
+
+## `processors/`
+
+Extract raw data from sources.
+
+Examples:
+
+```
+youtube_processor → metadata + transcript
+github_processor → repo structure + README
+web_processor → article extraction
+image_processor → OCR text
+```
+
+---
+
+## `database/db.py`
+
+SQLite resource vault.
+
+Stores:
+
+```
+vault_title
+vault_snippet
+source
+raw_data
+cleaned_data
+llm_output
+status
+```
+
+---
+
+# 🛠 Design Philosophy
+
+✔ Fully async architecture
+✔ Modular processors
+✔ Local-first AI workflow
+✔ Extendable source support
+✔ Structured knowledge storage
+
+---
+
+# 🧪 Example Use Cases
+
+• Build a **personal AI research vault**
+• Save and summarize **GitHub repos instantly**
+• Extract knowledge from **YouTube tutorials**
+• Organize **AI/ML resources automatically**
+• Create your own **AI knowledge ingestion system**
+
+---
+
+# 🔮 Future Ideas
+
+* Vector search over stored resources
+* RAG chat over your vault
+* Browser extension for one-click ingestion
+* Semantic clustering of resources
+* Automatic tagging
+
+---
+
+# 📜 License
+
+MIT License
+
+---
+
+# 👤 Author
+
+**Aditya Kumar**
+
+Building tools around **AI agents, automation, and knowledge systems.**
+
+GitHub
+[https://github.com/adityaksx](https://github.com/adityaksx)
