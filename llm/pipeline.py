@@ -63,9 +63,9 @@ _PIPELINE_OPTIONS_CODE = {"temperature": 0.1, "num_predict": 350, "top_p": 0.9}
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _pipeline_model(source_type: str) -> str:
-    if source_type in _CODE_TYPES:
-        return "deepseek-coder:6.7b"
-    return _PIPELINE_MODEL
+    # deepseek-coder is too slow for pipeline stages (30s timeout)
+    # Use fast mistral:7b for ALL guidance + enrichment calls
+    return _PIPELINE_MODEL   # always mistral:7b for stages 2 & 3
 
 
 def _pipeline_options(source_type: str) -> dict:
