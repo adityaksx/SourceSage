@@ -484,7 +484,7 @@ async def process_input(
         + "\n\n---\n\n".join(parts)
     )
     try:
-        return await call_llm(combined_prompt)                   # ← await
+        return await call_llm(combined_prompt, task="summary")                   # ← await
     except Exception:
         return "\n\n---\n\n".join(parts)
 
