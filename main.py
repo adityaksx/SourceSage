@@ -406,20 +406,82 @@ async def process_local_file(file_path: str) -> str:
     source = detect_source(file_path)
 
     if source == "local_image":
-        return await process_image_input(file_path)              # ← await
+        return await process_image_input(file_path)
 
-    if source in ("plain_text_file", "code_file", "notebook", "data_file", "pdf_document"):
+    # ── PDF — extract with PyPDF2, never OCR ─────────────────────────────
+    if source == "pdf_document" or file_path.lower().endswith(".pdf"):
+        try:
+            from processors.web_processor import _fetch_pdf, clean_text, MAX_CONTENT_CHARS
+            from llm.pipeline import extract_guidance, enrich
+            from utils.cleaner import clean_processor_output
+
+            print(f"  [ROUTER] Local PDF detected — extracting with PyPDF2")
+
+            # _fetch_pdf uses requests — won't work for local files
+            # Read bytes directly instead:
+            import io, PyPDF2
+            with open(file_path, "rb") as f:
+                reader = PyPDF2.PdfReader(f)
+                title  = ""
+                if reader.metadata:
+                    title = reader.metadata.get("/Title", "") or ""
+                if not title:
+                    title = Path(file_path).stem.replace("-", " ").replace("_", " ")
+
+                pages = []
+                for i, page in enumerate(reader.pages):
+                    if i >= 50:
+                        break
+                    try:
+                        text = page.extract_text()
+                        if text and text.strip():
+                            pages.append(text.strip())
+                    except Exception:
+                        continue
+
+            full_text = "\n\n".join(pages)
+            if not full_text.strip():
+                return (
+                    "⚠️ Could not extract text from this PDF.\n"
+                    "It may be a scanned image PDF. "
+                    "Try copying the text manually and pasting it directly."
+                )
+
+            content = clean_text(full_text)
+            if len(content) > MAX_CONTENT_CHARS:
+                content = content[:MAX_CONTENT_CHARS]
+
+            raw_data = {
+                "source_type": "pdf_document",
+                "title":       title,
+                "content":     content,
+                "url":         file_path,
+            }
+
+            llm_output = await _run_pipeline(title, raw_data, "pdf_document")
+
+            _save(
+                source       = "pdf_document",
+                url          = None,
+                title        = title,
+                raw_input    = {"kind": "local_pdf", "filename": Path(file_path).name},
+                raw_data     = raw_data,
+                cleaned_data = clean_processor_output(raw_data),
+                llm_output   = llm_output,
+            )
+            return llm_output
+
+        except ImportError:
+            return "⚠️ PyPDF2 not installed. Run: pip install pypdf2"
+        except Exception as e:
+            return f"Error reading PDF '{Path(file_path).name}': {e}"
+
+    if source in ("plain_text_file", "code_file", "notebook", "data_file"):
         try:
             text = Path(file_path).read_text(encoding="utf-8", errors="replace")
-            return await process_text_input(text)                # ← await
+            return await process_text_input(text)
         except Exception as e:
             return f"Error reading file '{Path(file_path).name}': {e}"
-
-    return (
-        f"Unsupported local file type: {source}\n"
-        f"File: {Path(file_path).name}"
-    )
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # MIXED INPUT  ← primary entry point called by web/app.py FastAPI /chat
