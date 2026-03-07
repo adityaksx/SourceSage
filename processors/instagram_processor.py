@@ -273,10 +273,28 @@ def process_instagram(url: str) -> dict | None:
     top_comments = get_top_comments(raw_comments, max_count=10)
 
     is_reel = "/reel/" in url
+    caption = clean_text(data.get("caption", ""))
+
+    # ── Whisper fallback for reels with no caption ────────────────────────
+    transcript = ""
+    if is_reel and not caption:
+        print(f"[instagram_processor] Reel has no caption — trying Whisper")
+        try:
+            from processors.youtube_processor import _transcribe_with_whisper
+            transcript = _transcribe_with_whisper(url, source_type="instagram_reel")
+            if transcript:
+                print(f"[instagram_processor] Whisper transcript: {len(transcript.split())} words")
+            else:
+                print(f"[instagram_processor] Whisper: no transcript extracted")
+        except Exception as e:
+            print(f"[instagram_processor] Whisper failed (non-fatal): {e}")
+
     return {
-        "source_type": "instagram_reel" if is_reel else "instagram_post",
-        "url":         url,
-        "title":       data.get("title",    ""),
-        "caption":     clean_text(data.get("caption",   "")),
+        "source_type":  "instagram_reel" if is_reel else "instagram_post",
+        "url":          url,
+        "title":        data.get("title",    ""),
+        "caption":      caption,
+        "transcript":   transcript,   # populated by Whisper if no caption
         "top_comments": top_comments,
     }
+
