@@ -435,6 +435,13 @@ _FIELD_MODES: dict[str, str] = {
     "article":         "prose",
     "text":            "prose",
     "body":            "prose",
+    "top_comments":    "social",   # ← ADD
+    "recent_captions": "social",   # ← ADD
+    "top_repos":       "prose",    # ← ADD (joined dicts)
+    "language":        "prose",    # ← ADD
+    "languages":       "prose",    # ← ADD
+    "tags":            "prose",    # ← ADD
+    "topics":          "prose",    # ← ADD
 }
 
 
@@ -468,13 +475,35 @@ def clean_processor_output(
             continue
 
         # ── Lists ─────────────────────────────────────────────────────────
+        # In clean_processor_output(), for list fields that are tags/topics:
         if isinstance(value, list):
-            if key in ("comments", "unique_comments"):
+            if key in ("comments", "unique_comments", "top_comments", "recent_captions"):
                 result[key] = clean_comments(value)
-            else:
-                joined      = "\n".join(str(v) for v in value if v)
+            elif key in ("tags", "topics", "languages"):
+                # Short keyword lists — join with comma, never sentence-filter
+                result[key] = ", ".join(str(v) for v in value if v)
+            
+            # ── ADD THIS: list[dict] — e.g. top_repos ─────────────────────────
+            elif value and isinstance(value[0], dict):
+                lines = []
+                for item in value:
+                    name  = item.get("name")        or item.get("title")   or ""
+                    desc  = item.get("description") or item.get("caption") or ""
+                    lang  = item.get("language")    or ""
+                    stars = item.get("stars")       or ""
+                    parts = [p for p in [name, desc[:100] if desc else "", f"[{lang}]" if lang else "", f"⭐{stars}" if stars else ""] if p]
+                    if parts:
+                        lines.append(" — ".join(parts))
+                joined      = "\n".join(lines)
                 r           = clean(joined, mode="prose", max_tokens=max_tokens)
                 result[key] = r.text
+            # ──────────────────────────────────────────────────────────────────
+
+            else:
+                joined   = "\n".join(str(v) for v in value if v)
+                r        = clean(joined, mode="prose", max_tokens=max_tokens)
+                result[key] = r.text
+
 
         # ── Strings ───────────────────────────────────────────────────────
         elif isinstance(value, str):
