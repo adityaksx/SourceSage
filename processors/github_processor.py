@@ -291,7 +291,7 @@ def process_github(url: str) -> dict | None:
       repo  → API metadata + clone + README
       file  → API metadata only (no clone needed)
       gist  → API metadata only
-      user  → returns None (handled as unsupported in main.py)
+      user  → user profile via API
     """
     parsed = parse_github_url(url)
     kind   = parsed["type"]
@@ -300,11 +300,10 @@ def process_github(url: str) -> dict | None:
 
     print(f"[github_processor] Detected type={kind}  owner={owner}  repo={repo}")
 
-    # ── User profile — not a repo, cannot process ─────────────────────────
+    # ── User profile ──────────────────────────────────────────────────────
     if kind == "user":
         print(f"[github_processor] User profile URL → fetching via API")
         return process_github_user(url, owner)
-
 
     # ── Unknown ───────────────────────────────────────────────────────────
     if kind == "unknown" or not owner or not repo:
@@ -319,38 +318,35 @@ def process_github(url: str) -> dict | None:
         print(f"[github_processor] No metadata returned for {owner}/{repo}")
         return None
 
-    # ── Clone and read README (repo only) ─────────────────────────────────
+    # ── Initialize before branching — fixes UnboundLocalError on file/gist ─
     overview = ""
+    files    = {}          # ← KEEP only here, remove the duplicate inside if block
+
     if kind == "repo":
         repo_path = clone_repo(url, repo)
-        files = {}
         if repo_path:
-            files["repo_path"] = repo_path
-        readme    = read_readme(repo_path)
+            files["repo_path"] = repo_path   # ← no more files = {} here
+        readme = read_readme(repo_path)
         if readme:
             overview = extract_overview(readme)
         else:
             print(f"[github_processor] No README found — reading source files")
             source_content = read_source_files(repo_path)
             if source_content:
-                overview = "[No README. Summarize strictly from source files below. Do NOT invent features.]\n\n" + source_content
+                overview = (
+                    "[No README. Summarize strictly from source files below. "
+                    "Do NOT invent features.]\n\n" + source_content
+                )
             else:
                 print(f"[github_processor] No source content found for {owner}/{repo}")
 
     return {
         "source_type": f"github_{kind}",
-        "url": url,
-        "repo": metadata.get("name", ""),
-        "owner": owner,
+        "url":         url,
         "description": metadata.get("description", ""),
-        "language": metadata.get("language", ""),
-        "languages": languages,
-        "stars": metadata.get("stars", 0),
-        "forks": metadata.get("forks", 0),
-        "topics": metadata.get("topics", []),
-        "license": metadata.get("license", ""),
-        "open_issues": metadata.get("open_issues", 0),
-        "updated_at": metadata.get("updated_at", ""),
-        "overview": overview,
-        "files": files
+        "language":    metadata.get("language",    ""),
+        "languages":   languages,
+        "topics":      metadata.get("topics",      []),
+        "license":     metadata.get("license",     ""),
+        "overview":    overview,
     }
