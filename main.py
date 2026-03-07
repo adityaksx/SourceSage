@@ -45,13 +45,10 @@ from processors.instagram_processor import process_instagram
 from processors.text_processor      import process_text
 from processors.image_processor     import process_image
 
-import time
-CURRENT_SESSION_ID = int(time.time())
+from llm.llm_classifier import is_supported
 
 from dotenv import load_dotenv
-load_dotenv()   
-import os
-print(f"  [DEBUG] INSTAGRAM_USERNAME={os.getenv('INSTAGRAM_USERNAME')}")    
+load_dotenv()     
 
 logger = logging.getLogger(__name__)
 
@@ -133,9 +130,9 @@ def _save(
     raw_data:     dict | None = None,
     cleaned_data: dict | None = None,
     llm_output:   str  | None = None,
-    status:       str        = "success",
+    status:       str        = "processed",
     error:        str  | None = None,
-    session_id: int = CURRENT_SESSION_ID,
+    session_id:   int | None  = None,
 ) -> None:
     try:
         # guarantee raw_input is never empty/None
@@ -186,7 +183,7 @@ def _save(
         )
     except Exception as e:
         logger.error(f"DB save failed: {e}")
-
+    
 def _friendly_error(url: str, source: str, err: str) -> str:
     if "empty data" in err:
         return (
@@ -249,7 +246,7 @@ async def _run_pipeline(user_input: str, raw_data: dict, source_type: str) -> st
 # SINGLE URL  (now async)
 # ─────────────────────────────────────────────────────────────────────────────
 
-async def process_link(url: str) -> str:
+async def process_link(url: str, session_id: int | None = None) -> str:
     if not url or not url.strip():
         return "No URL provided."
 
@@ -292,6 +289,7 @@ async def process_link(url: str) -> str:
             raw_data     = raw_data,
             cleaned_data = clean_processor_output(raw_data),
             llm_output   = llm_output,
+            session_id   = session_id,
         )
         return llm_output
 
@@ -305,6 +303,7 @@ async def process_link(url: str) -> str:
             raw_input = {"url": url},
             status    = "error",
             error     = err,
+            session_id   = session_id,
         )
         return _friendly_error(url, source, err)
 
@@ -313,7 +312,7 @@ async def process_link(url: str) -> str:
 # PLAIN TEXT  (now async)
 # ─────────────────────────────────────────────────────────────────────────────
 
-async def process_text_input(text: str) -> str:
+async def process_text_input(text: str, session_id: int | None = None) -> str:
     if not text or not text.strip():
         return "No text provided."
 
@@ -324,9 +323,8 @@ async def process_text_input(text: str) -> str:
         source = clf.get("source_type", "plain_text")
         print(f"  [ROUTER] Text classified as: {source} ({clf.get('confidence')} confidence)")
 
-        from llm.llm_classifier import is_supported
         if not is_supported(source):
-                return f"⚠️ Cannot process this.\n\n{_UNSUPPORTED_SOURCES.get(source, 'This input type is not supported.')}"
+            return f"⚠️ Cannot process this.\n\n{_UNSUPPORTED_SOURCES.get(source, 'This input type is not supported.')}"
 
         raw_data                = process_text(text, source_type=source)
         raw_data["source_type"] = source
@@ -341,6 +339,7 @@ async def process_text_input(text: str) -> str:
             raw_data     = raw_data,
             cleaned_data = clean_processor_output(raw_data),
             llm_output   = llm_output,
+            session_id   = session_id,
         )
         return llm_output
 
@@ -353,7 +352,7 @@ async def process_text_input(text: str) -> str:
 # IMAGE  (now async)
 # ─────────────────────────────────────────────────────────────────────────────
 
-async def process_image_input(image_path: str) -> str:
+async def process_image_input(image_path: str, session_id: int | None = None) -> str:
     image_path = str(Path(image_path).resolve())
 
     if not os.path.exists(image_path):
@@ -385,6 +384,7 @@ async def process_image_input(image_path: str) -> str:
             raw_data     = raw_data,
             cleaned_data = clean_processor_output(raw_data),
             llm_output   = llm_output,
+            session_id   = session_id,
         )
         return llm_output
 
