@@ -1,12 +1,16 @@
 import sqlite3
 import json
-from datetime import datetime
+import logging
+from datetime import datetime, timezone
 
-DB_PATH = "database/resources.db"
+logger = logging.getLogger(__name__)
+
+from pathlib import Path
+DB_PATH = Path(__file__).parent / "resources.db"
 
 
 def get_connection():
-    return sqlite3.connect(DB_PATH)
+    return sqlite3.connect(DB_PATH, check_same_thread=False)
 
 
 def _add_column_if_missing(cursor, table: str, column: str, coltype: str):
@@ -37,6 +41,13 @@ def init_db():
     )
     """)
 
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_resources_source ON resources(source)
+    """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_resources_created_at ON resources(created_at)
+    """)
+
     _add_column_if_missing(cursor, "resources", "vault_title",   "TEXT")
     _add_column_if_missing(cursor, "resources", "vault_snippet", "TEXT")
     _add_column_if_missing(cursor, "resources", "session_id", "INTEGER")
@@ -61,38 +72,43 @@ def save_resource(
     session_id=None,
 ):
     conn = get_connection()
-    cursor = conn.cursor()
+    try:
+        cursor = conn.cursor()
 
-    cursor.execute(
-        """
-        INSERT INTO resources
-        (source, url, title, raw_input, raw_data, cleaned_data,
-        llm_output, files, status, error, created_at, vault_title, vault_snippet, session_id)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
-        """,
-        (
-            source,
-            url,
-            title,
-            json.dumps(raw_input, ensure_ascii=False) if isinstance(raw_input, dict) else raw_input,
-            json.dumps(raw_data,  ensure_ascii=False) if isinstance(raw_data,  dict) else raw_data,
-            json.dumps(cleaned_data, ensure_ascii=False) if isinstance(cleaned_data, dict) else cleaned_data,
-            llm_output,
-            json.dumps(files, ensure_ascii=False) if files else None,
-            status,
-            error,
-            datetime.utcnow().isoformat(),
-            vault_title,
-            vault_snippet,
-            session_id,
-        ),
-    )
+        cursor.execute(
+            """
+            INSERT INTO resources
+            (source, url, title, raw_input, raw_data, cleaned_data,
+            llm_output, files, status, error, created_at, vault_title, vault_snippet, session_id)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                source,
+                url,
+                title,
+                json.dumps(raw_input, ensure_ascii=False) if isinstance(raw_input, dict) else raw_input,
+                json.dumps(raw_data,  ensure_ascii=False) if isinstance(raw_data,  dict) else raw_data,
+                json.dumps(cleaned_data, ensure_ascii=False) if isinstance(cleaned_data, dict) else cleaned_data,
+                llm_output,
+                json.dumps(files, ensure_ascii=False) if files else None,
+                status,
+                error,
+                datetime.now(timezone.utc).isoformat(),
+                vault_title,
+                vault_snippet,
+                session_id,
+            ),
+        )
 
-    conn.commit()
-    conn.close()
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"DB save failed: {e}")
+    finally:
+        conn.close()
 
 
-def get_resources(limit=200):
+def get_resources(limit=500):
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute(
@@ -140,5 +156,15 @@ def delete_resource(resource_id):
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("DELETE FROM resources WHERE id=?", (resource_id,))
+    conn.commit()
+    conn.close()
+
+def update_resource_answer(resource_id: int, llm_output: str):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE resources SET llm_output=? WHERE id=?",
+        (llm_output, resource_id)
+    )
     conn.commit()
     conn.close()
