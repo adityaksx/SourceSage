@@ -171,7 +171,7 @@ async function send() {
     const loadingWrapper = addMessage('loading', '');
 
     try {
-        const res = await fetch('/chat', { method: 'POST', body: formData });
+        const res = await fetch('https://ai-resource-agent.onrender.com/chat', { method: 'POST', body: formData });
         const data = await res.json();
         loadingWrapper.closest('.message-wrapper').remove();
         addMessage('bot', data.response || 'No response.');
