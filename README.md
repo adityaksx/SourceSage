@@ -211,8 +211,8 @@ sourcesage/
 ## 1. Clone the Repository
 
 ```
-git clone https://github.com/adityaksx/ai_resource_agent.git
-cd ai_resource_agent
+git clone https://github.com/adityaksx/SourceSage.git
+cd SourceSage
 ```
 
 ## 2. Install Dependencies
