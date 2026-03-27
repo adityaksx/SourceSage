@@ -26,6 +26,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 BASE_DIR   = Path(__file__).parent
 ROOT_DIR   = BASE_DIR.parent
+FRONTEND_DIR = ROOT_DIR / "frontend"   # project root / frontend/
 IMAGES_DIR = ROOT_DIR / "storage" / "images"
 PDFS_DIR   = ROOT_DIR / "storage" / "pdfs"
 
@@ -55,12 +56,14 @@ from database.db import init_db, get_resources, get_resource, delete_resource
 # ─────────────────────────────────────────────
 # STATIC FILES
 # ─────────────────────────────────────────────
-if (BASE_DIR / "static").exists():
+# NEW
+if (FRONTEND_DIR / "static").exists():
     app.mount(
         "/static",
-        StaticFiles(directory=str(BASE_DIR / "static")),
+        StaticFiles(directory=str(FRONTEND_DIR / "static")),
         name="static",
-    ) 
+    )
+
 # ─────────────────────────────────────────────
 # STARTUP
 # ─────────────────────────────────────────────
@@ -81,14 +84,20 @@ async def startup():
 # HTML ROUTES
 # ─────────────────────────────────────────────
 
+# NEW
 @app.get("/", response_class=HTMLResponse)
 def home():
-    return (BASE_DIR / "templates" / "chat.html").read_text(encoding="utf-8")
+    return (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+
+
+@app.get("/chat", response_class=HTMLResponse)
+def chat_page():
+    return (FRONTEND_DIR / "chat.html").read_text(encoding="utf-8")
 
 
 @app.get("/resources", response_class=HTMLResponse)
 def resources_page():
-    return (BASE_DIR / "templates" / "resources.html").read_text(encoding="utf-8")
+    return (FRONTEND_DIR / "resources.html").read_text(encoding="utf-8")
 
 
 # ─────────────────────────────────────────────
