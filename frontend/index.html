@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>AI Resource Agent</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <style>
+    /* Landing page specific overrides */
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #0d0d0d;
+      color: #e8e8e8;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      min-height: 100vh;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1.2rem 2.5rem;
+      border-bottom: 1px solid #1e1e1e;
+    }
+
+    .logo { font-size: 1.1rem; font-weight: 600; display: flex; align-items: center; gap: 0.5rem; }
+
+    nav a {
+      color: #aaa;
+      text-decoration: none;
+      font-size: 0.9rem;
+      margin-left: 1.5rem;
+      transition: color 0.2s;
+    }
+    nav a:hover { color: #fff; }
+
+    /* Hero */
+    .hero {
+      text-align: center;
+      padding: 5rem 1.5rem 3rem;
+      max-width: 760px;
+      margin: 0 auto;
+    }
+    .badge {
+      display: inline-block;
+      background: #1a1a1a;
+      border: 1px solid #2a2a2a;
+      color: #888;
+      font-size: 0.78rem;
+      padding: 0.3rem 0.8rem;
+      border-radius: 20px;
+      margin-bottom: 1.5rem;
+      letter-spacing: 0.04em;
+    }
+    .hero h1 {
+      font-size: clamp(2rem, 5vw, 3.2rem);
+      font-weight: 700;
+      line-height: 1.2;
+      margin-bottom: 1.2rem;
+      background: linear-gradient(135deg, #fff 40%, #666);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .hero p {
+      color: #888;
+      font-size: 1.05rem;
+      line-height: 1.7;
+      margin-bottom: 2.5rem;
+    }
+
+    /* CTA Buttons */
+    .cta-row {
+      display: flex;
+      gap: 1rem;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-bottom: 1rem;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.75rem 1.6rem;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      font-weight: 500;
+      text-decoration: none;
+      transition: all 0.2s;
+      cursor: pointer;
+      border: none;
+    }
+    .btn-primary {
+      background: #fff;
+      color: #0d0d0d;
+    }
+    .btn-primary:hover { background: #ddd; }
+    .btn-secondary {
+      background: transparent;
+      color: #ccc;
+      border: 1px solid #2e2e2e;
+    }
+    .btn-secondary:hover { border-color: #555; color: #fff; }
+
+    /* Demo notice */
+    .demo-notice {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      background: #1a1a1a;
+      border: 1px solid #2c2c2c;
+      color: #777;
+      font-size: 0.8rem;
+      padding: 0.4rem 1rem;
+      border-radius: 6px;
+      margin-top: 0.5rem;
+    }
+    .dot { width: 7px; height: 7px; border-radius: 50%; background: #f59e0b; display: inline-block; }
+
+    /* Features grid */
+    .section {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 4rem 1.5rem;
+    }
+    .section-label {
+      text-align: center;
+      color: #555;
+      font-size: 0.78rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-bottom: 0.6rem;
+    }
+    .section h2 {
+      text-align: center;
+      font-size: 1.7rem;
+      font-weight: 600;
+      margin-bottom: 2.5rem;
+      color: #e0e0e0;
+    }
+
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 1rem;
+    }
+    .feature-card {
+      background: #111;
+      border: 1px solid #1e1e1e;
+      border-radius: 10px;
+      padding: 1.4rem 1.5rem;
+      transition: border-color 0.2s;
+    }
+    .feature-card:hover { border-color: #333; }
+    .feature-icon { font-size: 1.4rem; margin-bottom: 0.75rem; }
+    .feature-card h3 { font-size: 0.95rem; font-weight: 600; margin-bottom: 0.4rem; color: #ddd; }
+    .feature-card p { font-size: 0.85rem; color: #666; line-height: 1.6; }
+
+    /* Sources */
+    .sources-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.6rem;
+      justify-content: center;
+      margin-top: 1.5rem;
+    }
+    .source-tag {
+      background: #111;
+      border: 1px solid #1e1e1e;
+      color: #888;
+      font-size: 0.82rem;
+      padding: 0.35rem 0.85rem;
+      border-radius: 20px;
+    }
+
+    /* Online vs Local table */
+    .compare-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+    }
+    @media (max-width: 600px) { .compare-grid { grid-template-columns: 1fr; } }
+
+    .compare-card {
+      background: #111;
+      border: 1px solid #1e1e1e;
+      border-radius: 10px;
+      padding: 1.5rem;
+    }
+    .compare-card h3 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .compare-card ul { list-style: none; }
+    .compare-card li {
+      font-size: 0.85rem;
+      color: #777;
+      padding: 0.35rem 0;
+      border-bottom: 1px solid #1a1a1a;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .compare-card li:last-child { border-bottom: none; }
+    .check { color: #22c55e; }
+    .cross { color: #ef4444; }
+
+    /* Install steps */
+    .steps { display: flex; flex-direction: column; gap: 1rem; }
+    .step {
+      display: flex;
+      gap: 1rem;
+      align-items: flex-start;
+      background: #111;
+      border: 1px solid #1e1e1e;
+      border-radius: 10px;
+      padding: 1.2rem 1.4rem;
+    }
+    .step-num {
+      min-width: 28px;
+      height: 28px;
+      background: #1e1e1e;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.8rem;
+      color: #888;
+      font-weight: 600;
+    }
+    .step-body h4 { font-size: 0.9rem; font-weight: 600; margin-bottom: 0.3rem; color: #ddd; }
+    .step-body code {
+      display: block;
+      background: #0a0a0a;
+      border: 1px solid #1e1e1e;
+      border-radius: 5px;
+      padding: 0.5rem 0.8rem;
+      font-size: 0.82rem;
+      color: #a3e635;
+      margin-top: 0.4rem;
+      font-family: 'Courier New', monospace;
+    }
+    .step-body p { font-size: 0.85rem; color: #666; margin-top: 0.3rem; }
+
+    /* Footer */
+    footer {
+      text-align: center;
+      padding: 2rem 1.5rem;
+      border-top: 1px solid #1a1a1a;
+      color: #444;
+      font-size: 0.82rem;
+    }
+    footer a { color: #555; text-decoration: none; }
+    footer a:hover { color: #aaa; }
+
+    hr.divider { border: none; border-top: 1px solid #1a1a1a; }
+  </style>
+</head>
+<body>
+
+<!-- Header -->
+<header>
+  <div class="logo">🧠 <span>Resource Agent</span></div>
+  <nav>
+    <a href="/chat">Chat</a>
+    <a href="/resources">Vault</a>
+    <a href="https://github.com/adityaksx/ai_resource_agent" target="_blank">GitHub ↗</a>
+  </nav>
+</header>
+
+<!-- Hero -->
+<section class="hero">
+  <div class="badge">🟢 Live Demo Available</div>
+  <h1>Turn any link or text<br/>into structured AI knowledge</h1>
+  <p>
+    Paste a YouTube video, GitHub repo, article, Instagram post, or plain text —<br/>
+    the agent detects the source, extracts content, and builds your personal knowledge vault.
+  </p>
+  <div class="cta-row">
+    <a class="btn btn-primary" href="/chat">💬 Try the Chat</a>
+    <a class="btn btn-secondary" href="/resources">🗄 Browse Saved Resources</a>
+  </div>
+  <div>
+    <span class="demo-notice">
+      <span class="dot"></span>
+      Hosted demo — AI processing shown from saved DB. Full AI requires local setup.
+    </span>
+  </div>
+</section>
+
+<hr class="divider"/>
+
+<!-- Features -->
+<section class="section">
+  <div class="section-label">What it does</div>
+  <h2>One agent for all your resources</h2>
+  <div class="features-grid">
+    <div class="feature-card">
+      <div class="feature-icon">🔍</div>
+      <h3>Smart Source Detection</h3>
+      <p>Two-stage detection: regex rules first, LLM classifier fallback for ambiguous inputs.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">⚡</div>
+      <h3>Fully Async Pipeline</h3>
+      <p>detect → extract → clean → enrich → summarize → store. No blocking I/O anywhere.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🗄</div>
+      <h3>Persistent Vault</h3>
+      <p>Every resource saved with title, snippet, source type, raw data, and LLM summary.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🧩</div>
+      <h3>Modular Processors</h3>
+      <p>Dedicated processor per source. Easy to extend with new integrations.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🖼</div>
+      <h3>Multi-Input Support</h3>
+      <p>Mix URLs, text notes, and image uploads in a single message. Gets a combined insight.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🤖</div>
+      <h3>Local LLM Ready</h3>
+      <p>Runs fully offline with Ollama (qwen2.5, mistral). No API keys needed locally.</p>
+    </div>
+  </div>
+</section>
+
+<hr class="divider"/>
+
+<!-- Supported Sources -->
+<section class="section" style="padding-top: 2.5rem; padding-bottom: 2.5rem;">
+  <div class="section-label">Supported sources</div>
+  <h2>Paste almost anything</h2>
+  <div class="sources-list">
+    <span class="source-tag">▶ YouTube Videos</span>
+    <span class="source-tag">▶ YouTube Playlists</span>
+    <span class="source-tag">🐙 GitHub Repos</span>
+    <span class="source-tag">🐙 GitHub Gists</span>
+    <span class="source-tag">📸 Instagram Posts</span>
+    <span class="source-tag">📰 Medium Articles</span>
+    <span class="source-tag">📝 Substack</span>
+    <span class="source-tag">🔬 ArXiv Papers</span>
+    <span class="source-tag">🤗 HuggingFace Models</span>
+    <span class="source-tag">🌐 Any Webpage</span>
+    <span class="source-tag">📄 PDFs</span>
+    <span class="source-tag">🖼 Local Images (OCR)*</span>
+    <span class="source-tag">💬 Reddit Posts</span>
+    <span class="source-tag">📋 Plain Text Notes</span>
+  </div>
+  <p style="text-align:center; color:#444; font-size:0.78rem; margin-top:1rem;">* OCR available in local install only</p>
+</section>
+
+<hr class="divider"/>
+
+<!-- Online vs Local -->
+<section class="section">
+  <div class="section-label">Deployment modes</div>
+  <h2>Online Demo vs Local Install</h2>
+  <div class="compare-grid">
+    <div class="compare-card">
+      <h3>🌐 Online Demo <span style="font-size:0.75rem; color:#555; font-weight:400;">(this site)</span></h3>
+      <ul>
+        <li><span class="check">✓</span> Browse saved resources vault</li>
+        <li><span class="check">✓</span> Chat interface available</li>
+        <li><span class="check">✓</span> YouTube & GitHub processing</li>
+        <li><span class="check">✓</span> Web article extraction</li>
+        <li><span class="cross">✗</span> OCR / image processing</li>
+        <li><span class="cross">✗</span> Local LLM (Ollama)</li>
+        <li><span class="cross">✗</span> Audio/video transcription</li>
+      </ul>
+    </div>
+    <div class="compare-card">
+      <h3>💻 Local Install <span style="font-size:0.75rem; color:#555; font-weight:400;">(full power)</span></h3>
+      <ul>
+        <li><span class="check">✓</span> Everything in Online Demo</li>
+        <li><span class="check">✓</span> OCR on images & scanned PDFs</li>
+        <li><span class="check">✓</span> Full Ollama LLM integration</li>
+        <li><span class="check">✓</span> Audio/video transcription (Whisper)</li>
+        <li><span class="check">✓</span> PyTorch-based processing</li>
+        <li><span class="check">✓</span> Private local knowledge vault</li>
+        <li><span class="check">✓</span> No usage limits</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<hr class="divider"/>
+
+<!-- Local Install Steps -->
+<section class="section">
+  <div class="section-label">Get started locally</div>
+  <h2>Install in 5 steps</h2>
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-body">
+        <h4>Clone the repository</h4>
+        <code>git clone https://github.com/adityaksx/ai_resource_agent.git && cd ai_resource_agent</code>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-body">
+        <h4>Install Python dependencies</h4>
+        <code>pip install -r requirements.txt</code>
+        <p>For full OCR + AI: also run <code style="display:inline; background:none; border:none; padding:0; color:#a3e635;">pip install pillow pytesseract paddleocr openai-whisper torch</code></p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-body">
+        <h4>Install system dependencies</h4>
+        <code>sudo apt install tesseract-ocr ffmpeg   # Linux / WSL</code>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">4</div>
+      <div class="step-body">
+        <h4>Start Ollama (local LLM)</h4>
+        <code>ollama serve
+ollama pull qwen2.5:7b-instruct</code>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">5</div>
+      <div class="step-body">
+        <h4>Run the web interface</h4>
+        <code>uvicorn web.app:app --reload</code>
+        <p>Then open <strong>http://localhost:8000</strong></p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider"/>
+
+<!-- Footer CTA -->
+<section class="section" style="padding-top:3rem; padding-bottom:2rem; text-align:center;">
+  <h2 style="margin-bottom:1rem;">Start exploring</h2>
+  <p style="color:#666; font-size:0.9rem; margin-bottom:2rem;">
+    Browse resources already saved in the demo vault, or start a new chat.
+  </p>
+  <div class="cta-row">
+    <a class="btn btn-primary" href="/chat">💬 Open Chat</a>
+    <a class="btn btn-secondary" href="/resources">🗄 View Resource Vault</a>
+  </div>
+</section>
+
+<footer>
+  Built by <a href="https://github.com/adityaksx" target="_blank">Aditya Kumar</a> &nbsp;·&nbsp;
+  <a href="https://github.com/adityaksx/ai_resource_agent" target="_blank">View on GitHub ↗</a>
+  &nbsp;·&nbsp; MIT License
+</footer>
+
+</body>
+</html>
