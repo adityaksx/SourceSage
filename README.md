@@ -295,6 +295,37 @@ ollama serve
 
 ---
 
+## ⚠️ Deployment Note (Important)
+
+To ensure smooth deployment on platforms like Render or Railway, some heavy dependencies are excluded:
+
+- paddleocr
+- pytesseract
+- pillow
+
+These libraries require system-level dependencies (Rust, Tesseract, etc.) that are not supported in most free hosting environments.
+
+### 🔹 Current Deployment Mode
+
+The hosted version runs in **demo mode**:
+- OCR processing is disabled
+- AI processing is disabled
+- Only previously stored resources are displayed
+
+### 🔹 For Full Local Setup
+
+If you want full functionality (OCR + AI processing), install:
+
+pip install paddleocr pytesseract pillow
+
+Also install system dependencies:
+
+- Tesseract OCR
+- ffmpeg
+- Ollama (for local LLM)
+
+---
+  
 # 🧩 Key Modules
 
 ### `main.py`
