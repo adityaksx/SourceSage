@@ -1,10 +1,23 @@
-# 🤖 AI Resource Agent
+# 🔮 SourceSage
 
 > Turn any URL, text, or file into structured AI knowledge.
 
-AI Resource Agent is a **fully async multi-source ingestion system** that accepts links, text, and images, detects their type automatically, extracts useful information, enriches it using an LLM, and stores everything in a local knowledge database.
+SourceSage is a **fully async multi-source ingestion system** that accepts links, text, and images, detects their type automatically, extracts useful information, enriches it using an LLM, and stores everything in a knowledge database.
 
 Think of it as a **personal AI-powered resource vault**.
+
+---
+
+## 🌐 Live Demo
+
+| Page | URL |
+|------|-----|
+| 🏠 Landing Page | https://ai-resource-agent.vercel.app/ |
+| 💬 Chat Interface | https://ai-resource-agent.vercel.app/chat |
+| 🗄 Resource Vault | https://ai-resource-agent.vercel.app/resources |
+
+> **Demo mode:** The hosted version displays previously saved resources from the demo database.
+> Full AI processing (OCR, LLM, Whisper) requires a local install — see [Getting Started](#-getting-started).
 
 ---
 
@@ -22,7 +35,7 @@ Paste almost anything:
 - Local images or files
 - Plain text notes
 
-The agent **automatically detects the source type**.
+SourceSage **automatically detects the source type**.
 
 ---
 
@@ -42,7 +55,7 @@ No blocking I/O. Everything runs with `async/await`.
 
 Two-stage detection system:
 
-1. **Fast rule-based detection** using regex  
+1. **Fast rule-based detection** using regex
 2. **LLM fallback classifier** for ambiguous inputs
 
 This keeps detection both **fast and intelligent**.
@@ -81,78 +94,52 @@ Stored fields include:
 - LLM summary
 - processing status
 
-This becomes your **personal AI knowledge database**.
-
 ---
 
 ### 🌐 Web Interface + CLI
 
-Two ways to use the agent.
-
-**Web Interface**
-
-FastAPI-based chat UI.
+**Web Interface** — FastAPI-based UI with 3 pages:
 
 ```
 uvicorn web.app:app --reload
 ```
 
-Open:
-
 ```
-http://localhost:8000
+http://localhost:8000            ← Landing page
+http://localhost:8000/chat       ← Chat interface
+http://localhost:8000/resources  ← Resource vault
 ```
 
----
-
-**CLI Mode**
-
-Run the terminal interface:
+**CLI Mode:**
 
 ```
 python main.py
 ```
-
-Paste URLs, text, or file paths directly.
 
 ---
 
 # 🧠 System Architecture
 
 ```
-User Input
-(URL / Text / Image)
+User Input (URL / Text / Image)
         │
         ▼
 Source Detection
-│
 ├─ Stage 1: Regex Rules
 └─ Stage 2: LLM Classifier
         │
         ▼
 Source Processor
-│
-├─ YouTube
-├─ GitHub
-├─ Web
-├─ Instagram
-├─ Text
-└─ Image (OCR)
+├─ YouTube  ├─ GitHub  ├─ Web
+├─ Instagram  ├─ Text  └─ Image (OCR)
         │
         ▼
 LLM Processing Pipeline
-│
-├─ classify()
-├─ extract_guidance()
-├─ clean()
-├─ enrich()
-└─ summarize()
+├─ classify()  ├─ extract_guidance()
+├─ clean()  ├─ enrich()  └─ summarize()
         │
         ▼
-SQLite Database
-        │
-        ▼
-Web UI / CLI Output
+SQLite Database → Web UI / CLI Output
 ```
 
 ---
@@ -160,7 +147,7 @@ Web UI / CLI Output
 # 🌍 Supported Sources
 
 | Category | Examples |
-|--------|--------|
+|----------|----------|
 | Video | YouTube videos, playlists |
 | Code | GitHub repositories, files, gists |
 | Social | Instagram posts, Reddit |
@@ -178,7 +165,7 @@ Web UI / CLI Output
 # 📁 Project Structure
 
 ```
-ai_resource_agent/
+sourcesage/
 │
 ├── main.py
 ├── config.py
@@ -207,10 +194,14 @@ ai_resource_agent/
 ├── database/
 │   └── db.py
 │
+├── frontend/                ← HTML pages served by FastAPI
+│   ├── index.html           ← Landing page (/)
+│   ├── chat.html            ← Chat UI (/chat)
+│   ├── resources.html       ← Resource vault (/resources)
+│   └── static/              ← CSS, JS assets
+│
 └── web/
-    ├── app.py
-    ├── templates/
-    └── static/
+    └── app.py               ← FastAPI backend
 ```
 
 ---
@@ -224,15 +215,11 @@ git clone https://github.com/adityaksx/ai_resource_agent.git
 cd ai_resource_agent
 ```
 
----
-
 ## 2. Install Dependencies
 
 ```
 pip install -r requirements.txt
 ```
-
----
 
 ## 3. Setup Environment Variables
 
@@ -242,7 +229,6 @@ Create a `.env` file:
 INSTAGRAM_USERNAME=your_username
 INSTAGRAM_PASSWORD=your_password
 ```
----
 
 ## 4. Run Web Interface
 
@@ -250,13 +236,7 @@ INSTAGRAM_PASSWORD=your_password
 uvicorn web.app:app --reload
 ```
 
-Then open:
-
-```
-http://localhost:8000
-```
-
----
+Open `http://localhost:8000`
 
 ## 5. Run CLI Mode
 
@@ -264,119 +244,81 @@ http://localhost:8000
 python main.py
 ```
 
-Type any:
-
-- URL
-- text
-- image path
-- file path
-
-Type `exit` to quit.
+Type any URL, text, image path, or file path. Type `exit` to quit.
 
 ---
 
-## 🧱 System Dependencies
+## 🧱 System Dependencies (Full Local Setup)
 
-- ffmpeg (required for audio/video processing)
-- tesseract-ocr (required for OCR fallback)
-- ollama (must be running locally)
+These are **not required** for the hosted demo but needed locally:
 
-Example:
+```bash
+# Linux / WSL
+sudo apt install tesseract-ocr ffmpeg
 
+# Start Ollama
 ollama serve
-
----
+```
 
 ## 🤖 Ollama Models
 
-- ollama pull qwen2.5:7b-instruct
-- ollama pull deepseek-coder:6.7b
-- ollama pull mistral:7b
+```bash
+ollama pull qwen2.5:7b-instruct
+ollama pull deepseek-coder:6.7b
+ollama pull mistral:7b
+```
 
 ---
 
-## ⚠️ Deployment Note (Important)
+## ⚠️ Deployment Note
 
-To ensure smooth deployment on platforms like Render or Railway, some heavy dependencies are excluded:
+Deployed on **Render** (backend) + **Vercel** (frontend).
 
-- paddleocr
-- pytesseract
-- pillow
-- openai-whisper
+The following are **excluded** from the hosted version — they require system binaries unavailable on Render's free plan:
 
-These libraries require system-level dependencies (Rust, Tesseract, etc.) that are not supported in most free hosting environments.
+| Package | Reason |
+|---------|--------|
+| `torch` / `torchvision` | Too large (>1 GB), no GPU |
+| `pytesseract` | Requires Tesseract binary |
+| `paddleocr` | Requires PaddlePaddle + Tesseract |
+| `openai-whisper` | Requires ffmpeg + heavy torch |
+| `pillow` | Compiled C extensions |
+| `ollama` | Requires a running local server |
 
-### 🔹 Current Deployment Mode
+### Hosted demo limitations
+- OCR processing disabled
+- AI/LLM processing disabled
+- Shows only previously saved demo database resources
 
-The hosted version runs in **demo mode**:
-- OCR processing is disabled
-- AI processing is disabled
-- Only previously stored resources are displayed
+### For full local setup
 
-### 🔹 For Full Local Setup
-
-If you want full functionality (OCR + AI processing), install:
-
-pip install paddleocr pytesseract pillow
-
-Also install system dependencies:
-
-- Tesseract OCR
-- ffmpeg
-- Ollama (for local LLM)
+```bash
+pip install pillow pytesseract paddleocr openai-whisper torch
+```
 
 ---
-  
+
 # 🧩 Key Modules
 
 ### `main.py`
-
-Central async router that:
-
-- detects input type  
-- routes to processor  
-- runs the LLM pipeline  
-- saves results to the database  
-
----
+Central async router — detects input type, routes to processor, runs LLM pipeline, saves to database.
 
 ### `llm/pipeline.py`
-
-Implements the AI processing pipeline:
-
-```
-classify()
-extract_guidance()
-clean()
-enrich()
-summarize()
-```
-
----
+Implements: `classify()` → `extract_guidance()` → `clean()` → `enrich()` → `summarize()`
 
 ### `llm/prompt_builder.py`
-
-Builds **source-specific prompts** for better LLM responses.
-
----
+Builds source-specific prompts for better LLM responses.
 
 ### `processors/`
 
-Each processor extracts structured data from its source.
-
-Examples:
-
 ```
-youtube_processor → metadata + transcript
-github_processor → repo structure + README
-web_processor → article extraction
-image_processor → OCR text
+youtube_processor  → metadata + transcript
+github_processor   → repo structure + README
+web_processor      → article extraction
+image_processor    → OCR text
 ```
-
----
 
 ### `database/db.py`
-
 Handles SQLite storage and resource queries.
 
 ---
@@ -393,11 +335,11 @@ Handles SQLite storage and resource queries.
 
 # 💡 Example Use Cases
 
-• Personal AI research vault  
-• Automatic GitHub repo summarization  
-• Knowledge extraction from YouTube tutorials  
-• Organizing AI/ML resources  
-• Building your own AI knowledge ingestion system  
+- Personal AI research vault
+- Automatic GitHub repo summarization
+- Knowledge extraction from YouTube tutorials
+- Organizing AI/ML resources
+- Building your own AI knowledge ingestion system
 
 ---
 
@@ -410,6 +352,4 @@ MIT License
 # 👤 Author
 
 **Aditya Kumar**
-
-GitHub  
-https://github.com/adityaksx
+GitHub: https://github.com/adityaksx
