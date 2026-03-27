@@ -171,8 +171,10 @@ def api_delete_resource(resource_id: int):
 
 
 # ─────────────────────────────────────────────
-# CHAT (DISABLED FOR DEPLOYMENT)
+# CHAT
 # ─────────────────────────────────────────────
+
+DEPLOY_MODE = os.getenv("DEPLOY_MODE", "false").lower() == "true"
 
 @app.post("/chat")
 async def chat(
@@ -180,10 +182,30 @@ async def chat(
     images: Optional[List[UploadFile]] = File(default=None),
     session_id: Optional[str] = Form(default=None),
 ):
-    return {
-        "response": "Processing is disabled in the deployed version. "
-                    "This demo only shows previously stored resources."
-    }
+    if DEPLOY_MODE:
+        return {
+            "response": "Processing is disabled in the deployed version. "
+                        "This demo only shows previously stored resources."
+        }
+
+    # ── Save uploaded images to disk ──
+    image_paths = []
+    if images:
+        for img in images:
+            if img and img.filename:
+                dest = IMAGES_DIR / img.filename
+                with dest.open("wb") as f:
+                    shutil.copyfileobj(img.file, f)
+                image_paths.append(str(dest))
+
+    # ── Call the real agent pipeline ──
+    from main import process_input
+    result = await process_input(
+        text=message or "",
+        image_paths=image_paths,
+    )
+
+    return {"response": result}
 
 
 # ─────────────────────────────────────────────
