@@ -2,7 +2,6 @@ __pycache__/config.cpython-312.pyc
 /__pycache__
 .env
 database/__pycache__/db.cpython-312.pyc
-database/resources.db
 *.pyc
 *.png
 *.json
