@@ -55,13 +55,12 @@ from database.db import init_db, get_resources, get_resource, delete_resource
 # ─────────────────────────────────────────────
 # STATIC FILES
 # ─────────────────────────────────────────────
-
-app.mount(
-    "/static",
-    StaticFiles(directory=str(BASE_DIR / "static")),
-    name="static",
-)
-
+if (BASE_DIR / "static").exists():
+    app.mount(
+        "/static",
+        StaticFiles(directory=str(BASE_DIR / "static")),
+        name="static",
+    ) 
 # ─────────────────────────────────────────────
 # STARTUP
 # ─────────────────────────────────────────────
