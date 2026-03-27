@@ -277,6 +277,22 @@ Type `exit` to quit.
 
 ---
 
+## System Dependencies
+
+- ffmpeg (required for audio/video processing)
+- tesseract-ocr (required for OCR fallback)
+- ollama (must be running locally)
+
+Example:
+
+ollama serve
+
+## Ollama Models
+
+ollama pull qwen2.5:7b-instruct
+ollama pull deepseek-coder:6.7b
+ollama pull mistral:7b
+
 # 🧩 Key Modules
 
 ### `main.py`
