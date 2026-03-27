@@ -55,7 +55,7 @@ function esc(str) {
 /* ── Load ───────────────────────────────────────── */
 async function loadResources() {
   try {
-    const r = await fetch('/api/resources?limit=500');
+    const r = await fetch("https://ai-resource-agent.onrender.com/api/resources");
     const d = await r.json();
     allItems = d.resources || [];
     computeStats();
@@ -279,7 +279,7 @@ async function openModal(id) {
   // ── Change 4: error handling ──────────────────────
   let item;
   try {
-    const r = await fetch(`/api/resources/${id}`);
+    const r = await fetch(`https://ai-resource-agent.onrender.com/api/resources/${id}`);
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     item = await r.json();
     currentModalId = item.id;
@@ -413,7 +413,7 @@ async function confirmDel() {
 
   try {
     await Promise.all(ids.map(id =>
-      fetch(`/api/resources/${id}`, { method: 'DELETE' })
+      fetch(`https://ai-resource-agent.onrender.com/api/resources/${id}`, { method: 'DELETE' })
     ));
     allItems = allItems.filter(i => !ids.includes(i.id));
     computeStats();
@@ -469,7 +469,7 @@ async function saveAnswer() {
   const newText = textarea.value;
 
   try {
-    const res = await fetch(`/api/resources/${currentModalId}/answer`, {
+    const res = await fetch(`https://ai-resource-agent.onrender.com/api/resources/${currentModalId}/answer`, {
       method:  'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({ llm_output: newText }),
