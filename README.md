@@ -287,11 +287,15 @@ Example:
 
 ollama serve
 
+---
+
 ## Ollama Models
 
-ollama pull qwen2.5:7b-instruct
-ollama pull deepseek-coder:6.7b
-ollama pull mistral:7b
+-ollama pull qwen2.5:7b-instruct
+-ollama pull deepseek-coder:6.7b
+-ollama pull mistral:7b
+
+---
 
 # 🧩 Key Modules
 
