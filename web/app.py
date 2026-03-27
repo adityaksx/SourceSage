@@ -1,4 +1,4 @@
-```python
+
 """
 web/app.py
 ----------
@@ -193,4 +193,4 @@ async def api_update_answer(resource_id: int, payload: dict):
     update_resource_answer(resource_id, payload.get("llm_output", ""))
 
     return {"ok": True}
-```
+

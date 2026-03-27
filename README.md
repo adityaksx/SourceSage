@@ -302,6 +302,7 @@ To ensure smooth deployment on platforms like Render or Railway, some heavy depe
 - paddleocr
 - pytesseract
 - pillow
+- openai-whisper
 
 These libraries require system-level dependencies (Rust, Tesseract, etc.) that are not supported in most free hosting environments.
 
