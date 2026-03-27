@@ -239,11 +239,9 @@ pip install -r requirements.txt
 Create a `.env` file:
 
 ```
-OLLAMA_MODEL=llama3
+INSTAGRAM_USERNAME=your_username
+INSTAGRAM_PASSWORD=your_password
 ```
-
-Add any other API keys required by processors.
-
 ---
 
 ## 4. Run Web Interface
@@ -277,7 +275,7 @@ Type `exit` to quit.
 
 ---
 
-## System Dependencies
+## 🧱 System Dependencies
 
 - ffmpeg (required for audio/video processing)
 - tesseract-ocr (required for OCR fallback)
@@ -289,7 +287,7 @@ ollama serve
 
 ---
 
-## Ollama Models
+## 🤖 Ollama Models
 
 - ollama pull qwen2.5:7b-instruct
 - ollama pull deepseek-coder:6.7b
