@@ -7,3 +7,8 @@ database/__pycache__/db.cpython-312.pyc
 *.json
 /storage/repos
 *.pdf
+/.idea
+*.db
+*.db
+database/resources.db
+*.db
